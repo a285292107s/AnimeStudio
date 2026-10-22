@@ -29,6 +29,8 @@
     textTotal: 0,
     imageOffset: 0,
     imageTotal: 0,
+    imageNames: new Map(),
+    pendingExport: null,
   };
 
   let seq = 0;
@@ -302,6 +304,11 @@
       block: '',
     }));
 
+    // Keep a name registry so a selection spread over several pages can still be exported.
+    (response.items || []).forEach((item) => {
+      state.imageNames.set(item.relativePath, item.name);
+    });
+
     APP.state.data.stats.uiSprites = response.total || 0;
     paintChrome();
     $('#imageFilters').style.display = 'none';
@@ -453,8 +460,13 @@
 
   function onTaskDone(message) {
     endTask();
-    APP.toast(`${label(message.kind)}${message.ok ? '完成' : '失败（exit ' + message.exitCode + '）'}`);
-    APP.pushLog(`${label(message.kind)}结束：exit ${message.exitCode}`);
+
+    const pending = state.pendingExport;
+    state.pendingExport = null;
+    const suffix = pending?.count ? `（${pending.count} 张所选）` : '';
+
+    APP.toast(`${label(message.kind)}${message.ok ? '完成' + suffix : '失败（exit ' + message.exitCode + '）'}`);
+    APP.pushLog(`${label(message.kind)}结束：exit ${message.exitCode}${suffix}`);
 
     applySettings(null, message.state);
 
@@ -463,6 +475,10 @@
     } else if (message.kind === 'images') {
       loadImages('');
     }
+  }
+
+  function escapeRegex(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   /* ---------- 交互接管 ---------- */
@@ -527,7 +543,32 @@
 
     if (hit('#imageExport')) {
       stop(event);
-      runTask('images', { containers: ['spriteoutput/ui'] });
+
+      const selected = [...APP.state.selectedImages];
+      if (selected.length > 0) {
+        const names = selected
+          .map((id) => state.imageNames.get(id))
+          .filter(Boolean)
+          .map(escapeRegex);
+
+        if (names.length === 0) {
+          APP.toast('选中的图片不在当前列表里，请重新勾选');
+          return;
+        }
+
+        if (names.length > 400) {
+          APP.toast(`一次最多导出 400 张（当前 ${names.length} 张），请先缩小选择`);
+          return;
+        }
+
+        state.pendingExport = { count: names.length };
+        runTask('images', { names: [`^(?:${names.join('|')})$`] });
+        APP.pushLog(`导出所选：${names.length} 张`);
+      } else {
+        state.pendingExport = { count: null };
+        runTask('images', { containers: ['spriteoutput/ui'] });
+      }
+
       return;
     }
 
