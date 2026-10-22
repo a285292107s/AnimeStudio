@@ -17,21 +17,27 @@ internal static class Program
 
 /// <summary>
 /// Thin WebView2 shell. All UI lives in wwwroot (plain HTML/CSS/JS) so it can also be
-/// developed in a normal browser against mock data; this form only hosts it and forwards
-/// messages to the application layer.
+/// developed in a normal browser; this form only hosts it, serves the output folder over
+/// a virtual host, and forwards messages to <see cref="HostService"/>.
 /// </summary>
 internal sealed class HostForm : Form
 {
-    private const string VirtualHost = "app.local";
+    private const string AppVirtualHost = "app.local";
 
     private readonly WebView2 _webView = new();
+    private HostService? _service;
 
     public HostForm()
     {
         Text = "AnimeStudio · 文本与 UI 提取";
-        Width = 1560;
-        Height = 960;
-        MinimumSize = new Size(1180, 720);
+
+        // WinForms sizes are device pixels. On a 200% display, a fixed 1560px window
+        // leaves WebView2 a ~780px CSS viewport and the three-column layout collapses,
+        // so size against the working area instead.
+        Rectangle workingArea = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1600, 1000);
+        Width = Math.Min((int)(workingArea.Width * 0.94), 2600);
+        Height = Math.Min((int)(workingArea.Height * 0.94), 1500);
+        MinimumSize = new Size((int)(workingArea.Width * 0.55), (int)(workingArea.Height * 0.5));
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(10, 10, 10);
 
@@ -54,46 +60,74 @@ internal sealed class HostForm : Form
         core.Settings.IsStatusBarEnabled = false;
 
         string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-        core.SetVirtualHostNameToFolderMapping(VirtualHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
+        core.SetVirtualHostNameToFolderMapping(AppVirtualHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 
-        core.WebMessageReceived += OnWebMessageReceived;
-        core.Navigate($"https://{VirtualHost}/index.html");
+        _service = new HostService(PostJson, PickFolder, MapOutputFolder);
+        MapOutputFolder(_service.Settings.OutputDirectory);
+
+        core.WebMessageReceived += (_, e) => _service?.Handle(e.WebMessageAsJson);
+        core.Navigate($"https://{AppVirtualHost}/index.html");
     }
 
-    private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    /// <summary>Thread-safe: the service may answer from a background continuation.</summary>
+    private void PostJson(string json)
     {
-        string raw = e.WebMessageAsJson;
+        if (IsDisposed || _webView.IsDisposed)
+        {
+            return;
+        }
+
+        if (_webView.InvokeRequired)
+        {
+            _webView.BeginInvoke(new Action(() => PostJson(json)));
+            return;
+        }
 
         try
         {
-            using JsonDocument document = JsonDocument.Parse(raw);
-            JsonElement root = document.RootElement;
-
-            string type = root.TryGetProperty("type", out JsonElement typeProperty)
-                ? typeProperty.GetString() ?? string.Empty
-                : string.Empty;
-
-            switch (type)
-            {
-                case "ping":
-                    Reply(new { type = "pong", host = "AnimeStudio.Host", version = "0.1.0" });
-                    break;
-
-                default:
-                    // Unknown message: acknowledge so the UI can show it in the log panel.
-                    Reply(new { type = "ack", received = type });
-                    break;
-            }
+            _webView.CoreWebView2?.PostWebMessageAsJson(json);
         }
-        catch (JsonException)
+        catch (InvalidOperationException)
         {
-            Reply(new { type = "error", message = "malformed message" });
+            // WebView went away between the check and the call.
         }
     }
 
-    private void Reply(object payload)
+    private static string? PickFolder(string title)
     {
-        string json = JsonSerializer.Serialize(payload);
-        _webView.CoreWebView2?.PostWebMessageAsJson(json);
+        using var dialog = new FolderBrowserDialog
+        {
+            Description = title,
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
+        };
+
+        return dialog.ShowDialog() == DialogResult.OK ? dialog.SelectedPath : null;
+    }
+
+    /// <summary>Expose the output directory as https://out.local/ so &lt;img&gt; can load PNGs directly.</summary>
+    private void MapOutputFolder(string? directory)
+    {
+        if (_webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            return;
+        }
+
+        try
+        {
+            _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                ImageIndex.VirtualHost,
+                directory,
+                CoreWebView2HostResourceAccessKind.Allow);
+        }
+        catch (ArgumentException)
+        {
+            // Invalid path for a virtual host mapping; the UI will simply not show images.
+        }
     }
 }

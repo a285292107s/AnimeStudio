@@ -55,7 +55,7 @@
     renderInspector();
     bindEvents();
     attachHostBridge();
-    pushLog('就绪：索引已加载（mock 数据）', 'info');
+    pushLog(window.chrome?.webview ? '就绪' : '就绪：预览数据（mock）', 'info');
     setStatus('就绪');
   }
 
@@ -134,7 +134,9 @@
           <button class="btn btn--xs" data-preset="${preset.action}">提取</button>
         </li>`)
       .join('');
+  }
 
+  function bindPresets() {
     $('#presets').addEventListener('click', (event) => {
       const button = event.target.closest('[data-preset]');
       if (!button) return;
@@ -324,11 +326,11 @@
       body.innerHTML = `
         <div class="insp__thumb"><img src="${image.file}" alt="${escapeAttr(image.name)}"></div>
         <h3 class="insp__title">${escapeHtml(image.name)}</h3>
-        <p class="insp__sub">${image.kind} · ${image.w} × ${image.h} px · ${image.kb} KB</p>
+        <p class="insp__sub">${image.kind || 'Sprite'} · ${image.w} × ${image.h} px${image.kb ? ' · ' + image.kb + ' KB' : ''}</p>
         <dl class="meta">
-          ${metaRow('容器', image.container)}
-          ${metaRow('来源 block', image.block.split('/').pop())}
-          ${metaRow('完整路径', image.container + '/' + image.name)}
+          ${metaRow('容器', image.container || '—')}
+          ${metaRow('来源 block', image.block ? image.block.split('/').pop() : '—')}
+          ${metaRow('完整路径', (image.container ? image.container + '/' : '') + image.name)}
         </dl>
         <div class="insp__actions">
           <button class="btn btn--xs" data-act="select-image">${state.selectedImages.has(image.id) ? '取消勾选' : '勾选此图'}</button>
@@ -401,6 +403,7 @@
 
   function bindEvents() {
     bindGameSwitch();
+    bindPresets();
     $$('.tab').forEach((tab) => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
 
     $('#textSearch').addEventListener('input', debounce((event) => {
@@ -649,6 +652,23 @@
     });
     webview.postMessage({ type: 'ping' });
   }
+
+  /* ---------- 对外接口（真实数据模式下由 host.js 接管） ---------- */
+
+  window.APP = {
+    state,
+    renderGames,
+    renderRail,
+    renderTabs,
+    renderLanguageSelect,
+    renderTextList,
+    renderImageGrid,
+    renderInspector,
+    switchTab,
+    toast,
+    pushLog,
+    setStatus,
+  };
 
   boot();
 })();

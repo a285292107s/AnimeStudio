@@ -253,6 +253,9 @@ button { font: inherit; color: inherit; }
   font-size: 11px;
   color: var(--faint);
   font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hint {
@@ -898,3 +901,7 @@ button { font: inherit; color: inherit; }
   *::before,
   *::after { animation: none !important; transition: none !important; }
 }
+
+/* 真实数据模式下路径较长：单行省略 */
+.indexmeta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
