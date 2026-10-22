@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System.Buffers.Binary;
 using System;
@@ -20,16 +20,26 @@ namespace AnimeStudio.CLI
                 var type = Properties.Settings.Default.convertType;
                 if (!TryExportFile(exportPath, item, "." + type.ToString().ToLower(), out var exportFullPath))
                     return false;
-                var image = m_Texture2D.ConvertToImage(true);
-                if (image == null)
-                    return false;
-                using (image)
+
+                try
                 {
-                    using (var file = File.OpenWrite(exportFullPath))
+                    var image = m_Texture2D.ConvertToImage(true);
+                    if (image == null)
+                        return false;
+                    using (image)
                     {
-                        image.WriteToStream(file, type);
+                        using (var file = File.OpenWrite(exportFullPath))
+                        {
+                            image.WriteToStream(file, type);
+                        }
+                        return true;
                     }
-                    return true;
+                }
+                catch
+                {
+                    // Never leave a half-written image behind: the gallery would show a broken tile.
+                    TryDelete(exportFullPath);
+                    throw;
                 }
             }
             else
@@ -372,9 +382,16 @@ namespace AnimeStudio.CLI
             var type = Properties.Settings.Default.convertType;
             if (!TryExportFile(exportPath, item, "." + type.ToString().ToLower(), out var exportFullPath))
                 return false;
-            var image = ((Sprite)item.Asset).GetImage();
-            if (image != null)
+
+            try
             {
+                var image = ((Sprite)item.Asset).GetImage();
+                if (image == null)
+                {
+                    TryDelete(exportFullPath);
+                    return false;
+                }
+
                 using (image)
                 {
                     using (var file = File.OpenWrite(exportFullPath))
@@ -384,7 +401,31 @@ namespace AnimeStudio.CLI
                     return true;
                 }
             }
-            return false;
+            catch
+            {
+                // A truncated texture can throw mid-write; drop the partial PNG.
+                TryDelete(exportFullPath);
+                throw;
+            }
+        }
+
+        private static void TryDelete(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch (IOException)
+            {
+                // Best effort only.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Best effort only.
+            }
         }
 
         public static bool ExportRawFile(AssetItem item, string exportPath)
