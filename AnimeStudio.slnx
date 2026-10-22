@@ -26,6 +26,7 @@
     <Project Path="AnimeStudio.PInvoke/AnimeStudio.PInvoke.csproj" />
   </Folder>
   <Project Path="AnimeStudio.Application/AnimeStudio.Application.csproj" />
+  <Project Path="AnimeStudio.Tests/AnimeStudio.Tests.csproj" />
   <Project Path="AnimeStudio.CLI/AnimeStudio.CLI.csproj" />
   <Project Path="AnimeStudio.Host/AnimeStudio.Host.csproj" />
   <Project Path="AnimeStudio.GUI/AnimeStudio.GUI.csproj" />

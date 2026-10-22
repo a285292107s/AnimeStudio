@@ -3,7 +3,7 @@ namespace AnimeStudio.Application.DesignData;
 /// <summary>
 /// Minimal LEB128 reader used by miHoYo's DesignData packs.
 /// </summary>
-internal static class Varint
+public static class Varint
 {
     public static ulong Read(ReadOnlySpan<byte> data, ref int position)
     {

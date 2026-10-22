@@ -19,12 +19,15 @@ public static class GameInstallScanner
     public const string HonkaiStarRail = "SR";
     public const string ZenlessZoneZero = "ZZZ";
 
-    public static IReadOnlyList<DetectedInstall> Scan(IEnumerable<string>? extraRoots = null, Action<string>? log = null)
+    public static IReadOnlyList<DetectedInstall> Scan(
+        IEnumerable<string>? extraRoots = null,
+        Action<string>? log = null,
+        bool includeDefaultRoots = true)
     {
         var results = new List<DetectedInstall>();
         var seenDataDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string root in BuildRoots(extraRoots))
+        foreach (string root in BuildRoots(extraRoots, includeDefaultRoots))
         {
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
             {
@@ -160,7 +163,7 @@ public static class GameInstallScanner
         }
     }
 
-    private static IEnumerable<string> BuildRoots(IEnumerable<string>? extraRoots)
+    private static IEnumerable<string> BuildRoots(IEnumerable<string>? extraRoots, bool includeDefaultRoots)
     {
         var roots = new List<string>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -179,6 +182,11 @@ public static class GameInstallScanner
             {
                 Add(extra);
             }
+        }
+
+        if (!includeDefaultRoots)
+        {
+            return roots;
         }
 
         Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "miHoYo Launcher", "games"));
