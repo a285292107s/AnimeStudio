@@ -770,7 +770,12 @@
       if (action === 'text') {
         runTask('text');
       } else if (action === 'images') {
-        runTask('images', { containers: ['spriteoutput/ui'] });
+        if (APP.state.gameId === 'ZZZ') {
+          APP.pushLog('绝区零的容器是数字 ID，没有 spriteoutput/ui 路径；先导出全部 Sprite（44,661 个，耗时较长）');
+          runTask('images', { types: ['Sprite'] });
+        } else {
+          runTask('images', { containers: ['spriteoutput/ui'] });
+        }
       } else {
         APP.switchTab('images');
         APP.toast('在图库里勾选后点「导出 PNG」');
@@ -854,6 +859,9 @@
     event.preventDefault();
     event.stopImmediatePropagation();
   }
+
+  // 调试/自动化入口：CDP 探针可以用它触发真实任务与查询。
+  window.HOST = { runTask, loadText, loadImages, call, state };
 
   webview.postMessage({ type: 'hello' });
 })();

@@ -653,9 +653,20 @@ internal sealed class HostService
                         "--map_op", "AssetMap,Load",
                         "--map_type", "MessagePack",
                         "--map_name", mapPath,
-                        "--types", "Sprite", "Texture2D",
                         "--group_assets", "ByContainer",
                     };
+
+                    string[] types = GetStringArray(payload, "types");
+                    arguments.Add("--types");
+                    if (types.Length > 0)
+                    {
+                        arguments.AddRange(types);
+                    }
+                    else
+                    {
+                        arguments.Add("Sprite");
+                        arguments.Add("Texture2D");
+                    }
 
                     string[] containers = GetStringArray(payload, "containers");
                     if (containers.Length > 0)
