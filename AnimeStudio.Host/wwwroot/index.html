@@ -95,6 +95,11 @@
           <select id="textLang"></select>
         </label>
         <span class="count" id="textCount">—</span>
+        <div class="pager" id="textPager" hidden>
+          <button class="btn btn--xs btn--ghost" data-page="prev" title="上一页">‹</button>
+          <span class="count" id="textPageInfo">—</span>
+          <button class="btn btn--xs btn--ghost" data-page="next" title="下一页">›</button>
+        </div>
         <div class="toolbar__spacer"></div>
         <button class="btn btn--ghost btn--xs" id="textExportCsv">导出 CSV</button>
         <button class="btn btn--xs" id="textExportJson">导出 JSON</button>
@@ -124,6 +129,11 @@
         <div class="chips" id="imageFilters"></div>
         <div class="toolbar__spacer"></div>
         <span class="count" id="imageCount">—</span>
+        <div class="pager" id="imagePager" hidden>
+          <button class="btn btn--xs btn--ghost" data-page="prev" title="上一页">‹</button>
+          <span class="count" id="imagePageInfo">—</span>
+          <button class="btn btn--xs btn--ghost" data-page="next" title="下一页">›</button>
+        </div>
         <button class="btn btn--ghost btn--xs" id="imageClear">清空选择</button>
         <button class="btn btn--xs" id="imageExport">导出 PNG</button>
       </div>

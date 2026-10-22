@@ -905,3 +905,9 @@ button { font: inherit; color: inherit; }
 /* 真实数据模式下路径较长：单行省略 */
 .indexmeta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+
+/* 分页控件（真实数据模式） */
+.pager { display: inline-flex; align-items: center; gap: 6px; }
+.pager[hidden] { display: none; }
+.pager .btn { min-width: 26px; }
+

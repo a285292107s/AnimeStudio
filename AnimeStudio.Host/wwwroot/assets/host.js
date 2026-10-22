@@ -14,6 +14,8 @@
   const $ = (selector) => document.querySelector(selector);
   const nf = new Intl.NumberFormat('zh-CN');
   const fmt = (value) => nf.format(value || 0);
+  const TEXT_PAGE = 200;
+  const IMAGE_PAGE = 120;
 
   const pending = new Map();
   const state = {
@@ -23,6 +25,10 @@
     timer: null,
     hostState: null,
     mapStats: null,
+    textOffset: 0,
+    textTotal: 0,
+    imageOffset: 0,
+    imageTotal: 0,
   };
 
   let seq = 0;
@@ -226,12 +232,12 @@
 
   /* ---------- 真实数据加载 ---------- */
 
-  async function loadText(query) {
+  async function loadText(query, offset = 0) {
     const response = await call('text.query', {
       locale: state.locale,
       query: query || '',
-      offset: 0,
-      limit: 1000,
+      offset: Math.max(0, offset),
+      limit: TEXT_PAGE,
     });
 
     if (!response || response.type !== 'text.page') {
@@ -246,6 +252,9 @@
       }
     }
 
+    state.textOffset = response.offset || 0;
+    state.textTotal = response.total || 0;
+
     APP.state.text = (response.rows || []).map(([hash, text]) => ({
       hash,
       text,
@@ -256,21 +265,27 @@
     paintChrome();
     APP.renderTextList();
 
-    if (response.total > APP.state.text.length) {
-      APP.pushLog(`文本：仅加载前 ${fmt(APP.state.text.length)} 条，共 ${fmt(response.total)} 条；用搜索缩小范围`);
+    const scroll = $('#textScroll');
+    if (scroll) {
+      scroll.scrollTop = 0;
     }
+
+    updatePagers();
   }
 
-  async function loadImages(query) {
+  async function loadImages(query, offset = 0) {
     const response = await call('images.query', {
       query: query || '',
-      offset: 0,
-      limit: 400,
+      offset: Math.max(0, offset),
+      limit: IMAGE_PAGE,
     });
 
     if (!response || response.type !== 'images.page') {
       return;
     }
+
+    state.imageOffset = response.offset || 0;
+    state.imageTotal = response.total || 0;
 
     APP.state.images = (response.items || []).map((item) => ({
       id: item.relativePath,
@@ -288,9 +303,34 @@
     paintChrome();
     $('#imageFilters').style.display = 'none';
     APP.renderImageGrid();
+    updatePagers();
+  }
 
-    if (response.total > APP.state.images.length) {
-      APP.pushLog(`图片：仅显示前 ${fmt(APP.state.images.length)} 张，共 ${fmt(response.total)} 张；用搜索缩小范围`);
+  function updatePagers() {
+    const textPager = $('#textPager');
+    if (textPager) {
+      const show = state.textTotal > TEXT_PAGE;
+      textPager.hidden = !show;
+      if (show) {
+        const from = state.textOffset + 1;
+        const to = Math.min(state.textTotal, state.textOffset + TEXT_PAGE);
+        $('#textPageInfo').textContent = `${fmt(from)}-${fmt(to)} / ${fmt(state.textTotal)}`;
+        textPager.querySelector('[data-page="prev"]').disabled = state.textOffset <= 0;
+        textPager.querySelector('[data-page="next"]').disabled = state.textOffset + TEXT_PAGE >= state.textTotal;
+      }
+    }
+
+    const imagePager = $('#imagePager');
+    if (imagePager) {
+      const show = state.imageTotal > IMAGE_PAGE;
+      imagePager.hidden = !show;
+      if (show) {
+        const from = state.imageOffset + 1;
+        const to = Math.min(state.imageTotal, state.imageOffset + IMAGE_PAGE);
+        $('#imagePageInfo').textContent = `${fmt(from)}-${fmt(to)} / ${fmt(state.imageTotal)}`;
+        imagePager.querySelector('[data-page="prev"]').disabled = state.imageOffset <= 0;
+        imagePager.querySelector('[data-page="next"]').disabled = state.imageOffset + IMAGE_PAGE >= state.imageTotal;
+      }
     }
   }
 
@@ -342,6 +382,20 @@
 
   document.addEventListener('click', (event) => {
     const hit = (selector) => event.target.closest(selector);
+
+    const pageButton = event.target.closest('#textPager [data-page], #imagePager [data-page]');
+    if (pageButton) {
+      stop(event);
+      const isTextPager = pageButton.closest('#textPager') !== null;
+      const step = pageButton.dataset.page === 'next' ? 1 : -1;
+
+      if (isTextPager) {
+        loadText($('#textSearch').value || '', Math.max(0, state.textOffset + step * TEXT_PAGE));
+      } else {
+        loadImages($('#imageSearch').value || '', Math.max(0, state.imageOffset + step * IMAGE_PAGE));
+      }
+      return;
+    }
 
     if (hit('#buildIndex')) {
       stop(event);
