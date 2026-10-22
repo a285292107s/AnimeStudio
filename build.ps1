@@ -130,5 +130,13 @@ foreach ($tfm in 'net10.0-windows') {
         throw "Host wwwroot missing from $outputDir/bin"
     }
 
+    # unit tests: pure logic only, no game data needed
+    dotnet run --project AnimeStudio.Tests -c $configuration
+    if ($LASTEXITCODE -ne 0) { throw "Unit tests failed" }
+
+    # convenience launchers
+    Set-Content "$outputDir/run-host.cmd" -Encoding ascii -Value @("@echo off", 'start "" "%~dp0bin\AnimeStudio.Host.exe"')
+    Set-Content "$outputDir/run-gui.cmd" -Encoding ascii -Value @("@echo off", 'start "" "%~dp0AnimeStudio.GUI.exe"')
+
     Write-Host "Built $outputDir" -ForegroundColor Green
 }

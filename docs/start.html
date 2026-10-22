@@ -109,7 +109,7 @@
       </div>
 
       <h2 id="install">下载与运行</h2>
-      <p>同一份下载里有两个 exe：<code>AnimeStudio.GUI.exe</code> 有窗口、能预览，给人用；<code>AnimeStudio.CLI.exe</code> 没有界面、靠参数干活，给脚本用。新手用 GUI。</p>
+      <p>同一份下载里有三个程序：<code>AnimeStudio.GUI.exe</code> 是老的窗口界面；<code>bin\AnimeStudio.Host.exe</code> 是新的网页界面（推荐，自动找游戏、能看文本和图库）；<code>AnimeStudio.CLI.exe</code> 给脚本用。</p>
 
       <div class="table-wrap">
         <table>
@@ -133,14 +133,18 @@
           <p>没有安装程序，解压即用；放哪个盘都行，路径有中文也没事。</p>
         </li>
         <li>
-          <h3>双击 GUI</h3>
+          <h3>双击 <code>run-host.cmd</code>（或 <code>bin\AnimeStudio.Host.exe</code>）</h3>
+          <p>网页界面会自己从 miHoYo Launcher 的注册表和各盘常见目录里找星穹铁道、绝区零的安装位置；找不到时再点「更换」手动选。第一次只需选一个输出目录、点「重建索引」，之后每次游戏更新点「提取」即可。</p>
+        </li>
+        <li>
+          <h3>需要老界面就双击 GUI</h3>
           <p>标题栏出现 <code>AnimeStudio v1.1.0</code> 就对了。首次启动会在程序旁边补一份密钥表 <code>CNKeys.json</code>，别删。</p>
         </li>
       </ol>
 
       <div class="callout callout-warn">
         <h3>别把 exe 单独拷走</h3>
-        <p>根目录只有两个 exe 和 LICENSE，其余 dll 全在 <code>bin</code> 子目录。exe 按相对路径去 <code>bin</code> 找部件，单独拷走就只会闪一下。</p>
+        <p>根目录只有几个 exe 和 LICENSE，其余 dll 全在 <code>bin</code> 子目录；网页界面整体也在 <code>bin</code> 里。exe 按相对路径去 <code>bin</code> 找部件，单独拷走就只会闪一下。</p>
       </div>
 
       <h2 id="game">第一步 选对游戏</h2>
