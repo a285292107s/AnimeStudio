@@ -33,6 +33,7 @@
     pendingExport: null,
     category: 'all',
     wizardDismissed: false,
+    hintShown: false,
   };
 
   let seq = 0;
@@ -80,6 +81,11 @@
         if (message.level === 'error') {
           APP.setStatus('出错：见日志');
         }
+        break;
+      case 'task.hint':
+        state.hintShown = true;
+        APP.pushLog(`提示：${message.message}`);
+        APP.toast(message.message);
         break;
       case 'task.done':
         onTaskDone(message);
@@ -461,6 +467,7 @@
 
   function onTaskStarted(message) {
     state.taskRunning = true;
+    state.hintShown = false;
     APP.setStatus(`${label(message.kind)}进行中…`, true);
     APP.pushLog(`开始${label(message.kind)}`);
     showProgress(`正在${label(message.kind)}…`);
@@ -564,6 +571,19 @@
 
     APP.toast(`${label(message.kind)}${message.ok ? '完成' + suffix : '失败（exit ' + message.exitCode + '）'}`);
     APP.pushLog(`${label(message.kind)}结束：exit ${message.exitCode}${suffix}`);
+
+    if (!message.ok && !state.hintShown) {
+      const exitHints = {
+        1: '参数错误：检查游戏目录与输出目录。',
+        2: '目录无效：游戏目录要包含 <Game>_Data，输出目录必须可写。',
+        3: '建索引失败：确认游戏完整安装，且磁盘空间足够。',
+      };
+      const exitHint = exitHints[message.exitCode];
+      if (exitHint) {
+        APP.pushLog(`提示：${exitHint}`);
+        APP.toast(exitHint);
+      }
+    }
 
     applySettings(null, message.state);
 

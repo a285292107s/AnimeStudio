@@ -430,7 +430,7 @@ internal sealed class HostService
             }
             catch (Exception exception)
             {
-                Send(new { type = "map.stats.failed", message = exception.Message });
+                Send(new { type = "map.stats.failed", message = Humanize(exception.Message) ?? exception.Message });
             }
             finally
             {
@@ -510,18 +510,24 @@ internal sealed class HostService
         {
             double lastFraction = -1;
             long stableTotal = -1;
+            var hintsShown = new HashSet<string>(StringComparer.Ordinal);
 
             int exitCode = await _runner
                 .RunAsync(arguments, (line, isError) =>
                 {
+                    string level = LevelOf(line, isError);
                     Send(new
                     {
                         type = "log",
-                        level = LevelOf(line, isError),
+                        level,
                         message = line,
                     });
 
-                    if (!TryParseProgress(line, out double fraction, out long total))
+                    string? hint = Humanize(line);
+                    if (hint is not null && hintsShown.Add(hint))
+                    {
+                        Send(new { type = "task.hint", message = hint });
+                    }                    if (!TryParseProgress(line, out double fraction, out long total))
                     {
                         return;
                     }
@@ -571,7 +577,7 @@ internal sealed class HostService
         }
         catch (Exception exception)
         {
-            Send(new { type = "task.failed", id, kind, message = exception.Message });
+            Send(new { type = "task.failed", id, kind, message = Humanize(exception.Message) ?? exception.Message });
         }
         finally
         {
@@ -860,7 +866,12 @@ internal sealed class HostService
 
     private static string LevelOf(string line, bool isError)
     {
-        if (isError || line.Contains("[Error]", StringComparison.Ordinal) || line.StartsWith("System.", StringComparison.Ordinal))
+        if (isError ||
+            line.Contains("[Error]", StringComparison.Ordinal) ||
+            line.StartsWith("System.", StringComparison.Ordinal) ||
+            line.Contains("Exception", StringComparison.Ordinal) ||
+            line.StartsWith("   at ", StringComparison.Ordinal) ||
+            line.StartsWith("--- End of", StringComparison.Ordinal))
         {
             return "error";
         }
@@ -871,6 +882,49 @@ internal sealed class HostService
         }
 
         return "info";
+    }
+
+    private static readonly (Regex Pattern, string Hint)[] ErrorHints =
+    [
+        (new Regex("application to execute does not exist|CLI.*不存在|找不到.*CLI", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "找不到 CLI 程序：重新运行 build.ps1，或在「设置」里指定 AnimeStudio.CLI.exe 的路径。"),
+
+        (new Regex("Access is denied|UnauthorizedAccess|0x80070005|拒绝访问", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "没有权限访问目录：把输出目录换到可写位置，或以管理员身份运行。"),
+
+        (new Regex("Not a raw \\(uncompressed\\) AssetMap|Corrupt AssetMap|MessagePack|Deserialize", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "地图文件损坏或版本不对：重建索引后再试。"),
+
+        (new Regex("OutOfMemory|内存不足", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "内存不足：关掉其它占用内存的程序后重试，或分几批导出。"),
+
+        (new Regex("DesignData|TextMap", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "找不到文本数据：确认选中完整的 <Game>_Data 目录，并至少启动过一次游戏。"),
+
+        (new Regex("NullReference|Object reference not set", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "解析资源时空引用，通常意味着地图与游戏版本不匹配：重建索引后再试。"),
+
+        (new Regex("No such file|Could not find file|文件不存在", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "缺少文件：游戏安装可能不完整，或输出目录被其它程序占用。"),
+    ];
+
+    /// <summary>Maps raw CLI failures to one actionable sentence; returns null when nothing matches.</summary>
+    private static string? Humanize(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return null;
+        }
+
+        foreach ((Regex pattern, string hint) in ErrorHints)
+        {
+            if (pattern.IsMatch(message))
+            {
+                return hint;
+            }
+        }
+
+        return null;
     }
 
     private static string? GetString(JsonElement element, string property)
