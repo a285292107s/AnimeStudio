@@ -37,9 +37,9 @@ function Remove-EmptyDirectories([string]$path) {
     }
 }
 
-foreach ($tfm in 'net9.0-windows', 'net10.0-windows') {
+foreach ($tfm in 'net10.0-windows') {
     # config
-    $outputDir = ".\dist\$tfm"
+    $outputDir = ".\dist"
     $configuration = 'Release'
 
     # prepare paths
