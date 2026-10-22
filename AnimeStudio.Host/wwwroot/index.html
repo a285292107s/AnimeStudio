@@ -20,6 +20,7 @@
     <nav class="games" id="games" aria-label="选择游戏"></nav>
 
     <div class="topbar__right">
+      <button class="btn btn--ghost btn--xs" id="openSettings" title="路径与索引设置">设置</button>
       <span class="chip" id="indexChip"><i class="dot"></i><span id="indexChipText">索引就绪</span></span>
       <span class="mode" id="modeChip">浏览器预览</span>
     </div>
@@ -176,6 +177,53 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<div class="welcome" id="settings" hidden>
+  <div class="welcome__card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <p class="welcome__eyebrow">设置 · SETTINGS</p>
+    <h2 class="welcome__title" id="settingsTitle">路径与索引</h2>
+    <p class="welcome__sub">留空表示自动：CLI 会沿 dist / 开发目录查找，地图默认在输出目录下的 index 里。</p>
+
+    <label class="field field--stack">
+      <span>游戏目录 <em id="settingsGameLabel">—</em></span>
+      <div class="pathrow">
+        <input id="settingsGamePath" type="text" spellcheck="false" placeholder=" — ">
+        <button class="btn btn--xs btn--ghost" id="settingsPickGame">选择</button>
+      </div>
+    </label>
+
+    <label class="field field--stack">
+      <span>CLI 路径 <em>留空自动探测</em></span>
+      <input id="settingsCliPath" type="text" spellcheck="false" placeholder="自动">
+    </label>
+
+    <label class="field field--stack">
+      <span>地图路径 <em>AssetMap</em></span>
+      <input id="settingsMapPath" type="text" spellcheck="false" placeholder="默认：输出目录/index/game.map">
+    </label>
+
+    <label class="field field--stack">
+      <span>索引名 <em>地图文件名</em></span>
+      <input id="settingsIndexName" type="text" spellcheck="false" placeholder="game">
+    </label>
+
+    <label class="field field--stack">
+      <span>输出目录</span>
+      <div class="pathrow">
+        <input id="settingsOutputPath" type="text" spellcheck="false" placeholder=" — ">
+        <button class="btn btn--xs btn--ghost" id="settingsPickOutput">选择</button>
+      </div>
+    </label>
+
+    <div class="welcome__actions welcome__actions--split">
+      <button class="btn btn--ghost" id="settingsOpenOutput">打开输出目录</button>
+      <span class="welcome__actions-right">
+        <button class="btn btn--ghost" id="settingsClose">关闭</button>
+        <button class="btn btn--accent" id="settingsSave">保存</button>
+      </span>
+    </div>
+  </div>
+</div>
 
 <div class="welcome" id="welcome" hidden>
   <div class="welcome__card" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">

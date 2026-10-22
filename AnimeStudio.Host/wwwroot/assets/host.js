@@ -65,6 +65,9 @@
         break;
       case 'settings.changed':
         applySettings(message.settings, message.state);
+        if ($('#settings') && !$('#settings').hidden) {
+          fillSettingsForm();
+        }
         break;
       case 'task.started':
         onTaskStarted(message);
@@ -256,6 +259,42 @@
   }
 
   /// <summary>First-run guidance: only when something is still missing, and only until dismissed.</summary>
+  function fillSettingsForm() {
+    const settings = state.settings || {};
+    const put = (selector, value) => {
+      const input = $(selector);
+      if (input) {
+        input.value = value || '';
+      }
+    };
+
+    put('#settingsGamePath', settings.gameDataPath);
+    put('#settingsCliPath', settings.cliPath);
+    put('#settingsMapPath', settings.mapPath);
+    put('#settingsIndexName', settings.indexName);
+    put('#settingsOutputPath', settings.outputDirectory);
+
+    const label = $('#settingsGameLabel');
+    if (label) {
+      label.textContent = settings.game === 'ZZZ' ? '绝区零' : '星穹铁道';
+    }
+  }
+
+  function openSettings() {
+    fillSettingsForm();
+    const modal = $('#settings');
+    if (modal) {
+      modal.hidden = false;
+    }
+  }
+
+  function closeSettings() {
+    const modal = $('#settings');
+    if (modal) {
+      modal.hidden = true;
+    }
+  }
+
   function updateWizard() {
     const overlay = $('#welcome');
     if (!overlay) {
@@ -564,6 +603,52 @@
 
   document.addEventListener('click', (event) => {
     const hit = (selector) => event.target.closest(selector);
+
+    if (hit('#openSettings')) {
+      stop(event);
+      openSettings();
+      return;
+    }
+
+    if (hit('#settingsClose')) {
+      stop(event);
+      closeSettings();
+      return;
+    }
+
+    if (hit('#settingsPickGame')) {
+      stop(event);
+      call('settings.pick', { target: 'game' });
+      return;
+    }
+
+    if (hit('#settingsPickOutput')) {
+      stop(event);
+      call('settings.pick', { target: 'output' });
+      return;
+    }
+
+    if (hit('#settingsOpenOutput')) {
+      stop(event);
+      call('open.folder');
+      return;
+    }
+
+    if (hit('#settingsSave')) {
+      stop(event);
+      call('settings.save', {
+        settings: {
+          gameDataPath: $('#settingsGamePath').value,
+          cliPath: $('#settingsCliPath').value,
+          mapPath: $('#settingsMapPath').value,
+          indexName: $('#settingsIndexName').value,
+          outputDirectory: $('#settingsOutputPath').value,
+        },
+      });
+      closeSettings();
+      APP.toast('设置已保存');
+      return;
+    }
 
     if (hit('#welcomeDetect')) {
       stop(event);

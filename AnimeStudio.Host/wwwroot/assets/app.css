@@ -988,3 +988,23 @@ button { font: inherit; color: inherit; }
 }
 
 .welcome__actions { margin-top: 16px; display: flex; justify-content: flex-end; }
+
+/* 设置弹层 */
+.field--stack { display: grid; gap: 6px; margin-bottom: 12px; }
+.field--stack > span { font-size: 11px; color: var(--muted); }
+.field--stack em { font-style: normal; color: var(--faint); font-family: var(--mono); font-size: 10px; margin-left: 6px; }
+.field--stack input {
+  width: 100%;
+  padding: 7px 9px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg);
+  background: #0b0b0b;
+  border: 1px solid var(--rule);
+  outline: none;
+}
+.field--stack input:focus { border-color: var(--accent); }
+.field--stack .pathrow { display: flex; gap: 6px; }
+.field--stack .pathrow input { flex: 1; }
+.welcome__actions--split { justify-content: space-between; align-items: center; }
+.welcome__actions-right { display: flex; gap: 8px; }

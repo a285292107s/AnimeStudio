@@ -330,27 +330,64 @@ internal sealed class HostService
 
     private void HandleSave(JsonElement root)
     {
+        string previousMapPath = MapPath();
+        bool switchGame = false;
+        string? gameName = null;
+
         if (root.TryGetProperty("settings", out JsonElement settings) && settings.ValueKind == JsonValueKind.Object)
         {
             string? game = GetString(settings, "game");
-            if (!string.IsNullOrWhiteSpace(game) && game != Settings.Game)
+            if (!string.IsNullOrWhiteSpace(game) && !string.Equals(game, Settings.Game, StringComparison.OrdinalIgnoreCase))
             {
-                Settings.Game = game;
+                switchGame = true;
+                gameName = game;
             }
 
-            Profile.DataPath = GetString(settings, "gameDataPath") ?? Profile.DataPath;
-            Settings.CliPath = GetString(settings, "cliPath") ?? Settings.CliPath;
+            if (TryGetOptionalString(settings, "gameDataPath", out string? dataPath))
+            {
+                Profile.DataPath = Blank(dataPath);
+            }
 
-            string? output = GetString(settings, "outputDirectory");
-            if (!string.IsNullOrWhiteSpace(output) && output != Settings.OutputDirectory)
+            if (TryGetOptionalString(settings, "cliPath", out string? cliPath))
+            {
+                Settings.CliPath = Blank(cliPath);
+            }
+
+            if (TryGetOptionalString(settings, "mapPath", out string? mapPath))
+            {
+                Profile.MapPath = Blank(mapPath);
+            }
+
+            if (TryGetOptionalString(settings, "indexName", out string? indexName) && !string.IsNullOrWhiteSpace(indexName))
+            {
+                Profile.IndexName = indexName.Trim();
+            }
+
+            if (TryGetOptionalString(settings, "outputDirectory", out string? output) &&
+                !string.IsNullOrWhiteSpace(output) &&
+                output != Settings.OutputDirectory)
             {
                 Settings.OutputDirectory = output;
                 _mapOutputFolder(output);
+                _images = [];
+                _categories = [];
             }
+        }
+
+        if (switchGame)
+        {
+            SetGame(gameName ?? Settings.Game, notify: true);
         }
 
         SettingsStore.Save(Settings);
         SendSettingsChanged();
+
+        if (!string.Equals(previousMapPath, MapPath(), StringComparison.OrdinalIgnoreCase))
+        {
+            _mapStats = null;
+            _mapStatsPath = null;
+            QueueMapStats(force: true);
+        }
     }
 
     private void SendSettingsChanged()
@@ -847,6 +884,21 @@ internal sealed class HostService
 
         return null;
     }
+
+    /// <summary>Distinguishes "property absent" from "explicitly null" when saving settings.</summary>
+    private static bool TryGetOptionalString(JsonElement element, string property, out string? value)
+    {
+        value = null;
+        if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(property, out JsonElement found))
+        {
+            return false;
+        }
+
+        value = found.ValueKind == JsonValueKind.String ? found.GetString() : null;
+        return true;
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static int? GetInt(JsonElement element, string property)
     {
