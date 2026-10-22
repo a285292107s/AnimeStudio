@@ -126,7 +126,7 @@ AnimeStudio.Patcher    → （无）</code></pre>
       <h2 id="build">构建</h2>
       <ul>
         <li><strong>前置</strong>。Visual Studio 2026，勾上「.NET 桌面开发」和「使用 C++ 的桌面开发」；只需要 <strong>.NET 10 SDK</strong>（不再兼容 .NET 9）。</li>
-        <li><strong><code>build.ps1</code> 干的活</strong>。只编托管代码（CLI 和 GUI 各一个目标框架 <code>net10.0-windows</code>），再用 Patcher 改写 exe，最后归到 <code>dist/</code>。</li>
+        <li><strong><code>build.ps1</code> 干的活</strong>。编托管代码（CLI / GUI / WebView2 Host，单目标 <code>net10.0-windows</code>），用 Patcher 改写 GUI 与 CLI 的 apphost，最后归到 <code>dist/</code>：根目录是 <code>AnimeStudio.GUI.exe</code> 与 <code>AnimeStudio.CLI.exe</code>；<code>dist/bin/AnimeStudio.Host.exe</code> 是新的网页界面宿主，前端在 <code>bin/wwwroot</code>，它会自动在上层目录找 CLI。</li>
         <li><strong>它不干的活</strong>。不编任何原生项目，不跑测试（仓库里没有测试项目），不签名不压缩。</li>
         <li><strong>原生 DLL</strong>。9 个，共 7.65 MB，直接提交在 <code>AnimeStudio.Libraries</code> 里。它们的登记分散在三个 csproj：核心项目带 Ooz 和 FBXNative，Utility 带 HLSL 和 5 个 ACL，界面工程单独带 FMOD。</li>
         <li><strong>FBX 原生库</strong>。要 Autodesk FBX SDK 的 <strong>2020.3.7</strong> 版，头文件目录、一个 Debug 一个 Release 的库目录，全部以绝对路径写死在 <code>AnimeStudio.FBXNative.vcxproj</code> 的 4 处。装到别的位置就编不过。</li>

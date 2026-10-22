@@ -29,6 +29,9 @@ internal sealed class CliRunner
         string[] candidates =
         [
             Path.Combine(baseDirectory, "AnimeStudio.CLI.exe"),
+            // dist layout: bin\AnimeStudio.Host.exe with the patched CLI one level up
+            Path.Combine(baseDirectory, "..", "AnimeStudio.CLI.exe"),
+            Path.Combine(baseDirectory, "..", "..", "AnimeStudio.CLI.exe"),
             // dev layout: AnimeStudio.Host/bin/<config>/<tfm>/ -> repo root
             Path.Combine(baseDirectory, "..", "..", "..", "..", "AnimeStudio.CLI", "bin", "Release", "net10.0-windows", "AnimeStudio.CLI.exe"),
             Path.Combine(baseDirectory, "..", "..", "..", "..", "AnimeStudio.CLI", "bin", "Debug", "net10.0-windows", "AnimeStudio.CLI.exe"),

@@ -65,6 +65,12 @@ foreach ($tfm in 'net10.0-windows') {
     & $patcher $guiExe -d bin
     if ($LASTEXITCODE -ne 0) { throw "GUI patch failed ($tfm)" }
 
+    # build the WebView2 host. It is NOT patched: it lives in bin\ next to its own dlls and
+    # wwwroot, and loads AnimeStudio.CLI.exe from the dist root one level up.
+    dotnet build AnimeStudio.Host -c $configuration
+    if ($LASTEXITCODE -ne 0) { throw "Host build failed ($tfm)" }
+    $hostOut = "AnimeStudio.Host/bin/$configuration/net10.0-windows"
+
     # prepare output dir
     Reset-Dir $outputDir
     New-Item -ItemType Directory -Force "$outputDir/bin" | Out-Null
@@ -72,6 +78,7 @@ foreach ($tfm in 'net10.0-windows') {
     # copy to output
     Copy-Item "$cliOut/*" "$outputDir/bin" -Recurse -Force
     Copy-Item "$guiOut/*" "$outputDir/bin" -Recurse -Force
+    Copy-Item "$hostOut/*" "$outputDir/bin" -Recurse -Force
 
     # move launcher exes next to bin/
     foreach ($exe in 'AnimeStudio.GUI.exe', 'AnimeStudio.CLI.exe') {
@@ -101,6 +108,14 @@ foreach ($tfm in 'net10.0-windows') {
         if ($text -notmatch [regex]::Escape("bin\$dllName")) {
             Write-Warning "$exe may not embed expected path bin\$dllName"
         }
+    }
+
+    # sanity: the WebView2 host must sit in bin\ together with its wwwroot
+    if (-not (Test-Path "$outputDir/bin/AnimeStudio.Host.exe")) {
+        throw "AnimeStudio.Host.exe missing from $outputDir/bin"
+    }
+    if (-not (Test-Path "$outputDir/bin/wwwroot/index.html")) {
+        throw "Host wwwroot missing from $outputDir/bin"
     }
 
     Write-Host "Built $outputDir" -ForegroundColor Green
