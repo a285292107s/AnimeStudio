@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>五分钟上手 · AnimeStudio 说明书</title>
+<meta name="description" content="AnimeStudio 五分钟上手：下载哪一版、怎么选对游戏、Load file 与 Load folder 的区别、资产列表的 6 列、3 种范围乘 4 种格式的导出、四种输出目录布局，以及你会遇到的文件形态。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-theme="paper" data-page="start">
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <a class="mark" href="index.html">
+    <span class="mark-plate">AS</span>
+    <span>AnimeStudio<span class="mark-sub"> 说明书</span></span>
+  </a>
+  <button class="navtoggle" data-navtoggle aria-expanded="false">目录</button>
+  <nav class="topnav" data-topnav aria-label="主导航">
+    <a href="start.html" aria-current="page">上手</a>
+    <a href="gui.html">界面</a>
+    <a href="pipeline.html">原理</a>
+    <a href="games.html">游戏</a>
+    <a href="faq.html">排错</a>
+    <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+  </nav>
+</header>
+
+<div class="wrap shell">
+  <aside class="sidenav" aria-label="手册目录">
+    <div class="sidenav-group">
+      <p class="sidenav-title">开始</p>
+      <a href="index.html">封面</a>
+      <a href="start.html" aria-current="page">五分钟上手</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">用</p>
+      <a href="gui.html">界面导览</a>
+      <a href="batch.html">批量与资产地图</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">懂</p>
+      <a href="pipeline.html">它怎么工作</a>
+      <a href="games.html">游戏与它们的锁</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">其它</p>
+      <a href="faq.html">疑难解答</a>
+      <a href="dev.html">想改代码</a>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="pagehead">
+      <h1>五分钟上手</h1>
+      <p class="lead">把游戏里的立绘、模型、音乐，变成双击就能打开的文件。四步：选游戏、加载、浏览、导出。</p>
+      <div class="pagehead-extra">
+        <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+        <a class="btn btn-quiet" href="faq.html">卡住了看排错</a>
+      </div>
+    </header>
+
+    <div class="toc">
+      <p>本页内容</p>
+      <a href="#what">你能拿它做什么</a>
+      <a href="#install">下载与运行</a>
+      <a href="#game">第一步 选对游戏</a>
+      <a href="#load">第二步 加载</a>
+      <a href="#browse">第三步 浏览与预览</a>
+      <a href="#export">第四步 导出</a>
+      <a href="#layout">输出目录怎么排</a>
+      <a href="#files">你会遇到的文件长什么样</a>
+    </div>
+
+    <div class="prose">
+      <h2 id="what">你能拿它做什么</h2>
+      <p>一句话：它把 Unity 游戏打好的资源包拆开，把里面的贴图、模型、动作、音频、着色器、文本，导成你电脑上能直接打开的文件。</p>
+      <p>包＝快递箱。一个游戏目录里有几百个箱子，箱子里还套着小盒子，游戏厂商管小盒子叫 CAB，真正的东西在小盒子里。AnimeStudio 干的活是：找到箱子、开锁、拆盒、把东西摆出来，最后按类型放进你指定的文件夹。</p>
+
+      <div class="facts">
+        <div class="fact"><b>4</b><span>种导出格式</span></div>
+        <div class="fact"><b>3</b><span>种导出范围</span></div>
+        <div class="fact"><b>6</b><span>列资产信息</span></div>
+        <div class="fact"><b>75</b><span>个游戏条目</span></div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>它导出的东西和落地形态</caption>
+          <thead>
+            <tr><th>你想拿的</th><th>导出后是什么</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>贴图、立绘</td><td><code>.png</code>（默认），可选 <code>.jpg</code> <code>.bmp</code> <code>.tga</code>；光照贴图会存 <code>.hdr</code></td></tr>
+            <tr><td>模型、动作</td><td><code>.fbx</code>；只要几何体时也可以单独导 <code>.obj</code></td></tr>
+            <tr><td>音频</td><td><code>.wav</code>，或它原本的压缩容器 <code>.fsb</code></td></tr>
+            <tr><td>着色器、文本、字体</td><td><code>.shader</code>、<code>.txt</code>、<code>.ttf</code> 或 <code>.otf</code></td></tr>
+            <tr><td>看不懂的对象</td><td><code>.json</code>（字段全摊开）、<code>.txt</code>（字段文本）、<code>.dat</code>（原始字节）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <h3>它不改游戏本体，只有一个例外</h3>
+        <p>它读别人的文件、把结果写进你选的输出目录。唯一例外是分片包：碎片会被拼成一个完整文件、写回碎片所在的目录。见<a href="faq.html">疑难解答</a>。</p>
+      </div>
+
+      <h2 id="install">下载与运行</h2>
+      <p>同一份下载里有两个 exe：<code>AnimeStudio.GUI.exe</code> 有窗口、能预览，给人用；<code>AnimeStudio.CLI.exe</code> 没有界面、靠参数干活，给脚本用。新手用 GUI。</p>
+
+      <div class="table-wrap">
+        <table>
+          <caption>只编 <code>net10.0-windows</code> 一个目标</caption>
+          <thead>
+            <tr><th>包</th><th>适合谁</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 版</a></td><td>唯一的包，需要 .NET 10 Desktop Runtime</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <h3>装 .NET 10 桌面运行时</h3>
+          <p>从 <a href="https://dotnet.microsoft.com/download/dotnet">.NET Desktop Runtime</a> 装 <strong>10</strong>。是 Desktop Runtime，不是普通 Runtime；只编了 Windows x64。</p>
+        </li>
+        <li>
+          <h3>解压到任意目录</h3>
+          <p>没有安装程序，解压即用；放哪个盘都行，路径有中文也没事。</p>
+        </li>
+        <li>
+          <h3>双击 GUI</h3>
+          <p>标题栏出现 <code>AnimeStudio v1.1.0</code> 就对了。首次启动会在程序旁边补一份密钥表 <code>CNKeys.json</code>，别删。</p>
+        </li>
+      </ol>
+
+      <div class="callout callout-warn">
+        <h3>别把 exe 单独拷走</h3>
+        <p>根目录只有两个 exe 和 LICENSE，其余 dll 全在 <code>bin</code> 子目录。exe 按相对路径去 <code>bin</code> 找部件，单独拷走就只会闪一下。</p>
+      </div>
+
+      <h2 id="game">第一步 选对游戏</h2>
+      <p>这是新手第一大坑，也是唯一「选错就全盘皆错」的步骤。<code>Options</code> ▸ <code>Select Game</code> 弹出的窗口从上到下三段，加一个 Confirm。</p>
+
+      <dl class="kv">
+        <div>
+          <dt>第一段 Game type</dt>
+          <dd>三个大类：<code>Hoyo game</code>、<code>Encrypted game (pick if unsure)</code>、<code>Other</code>。它决定下面两个下拉里装什么。</dd>
+        </div>
+        <div>
+          <dt>第二段 Game</dt>
+          <dd>具体游戏。第一段选 Hoyo game 时，这里列 7 个发行商名字（Genshin Impact、Honkai: Star Rail、Zenless Zone Zero 等）；另两项列单个游戏条目。</dd>
+        </div>
+        <div>
+          <dt>第三段 Game version</dt>
+          <dd>Live、CBT 1、CBT 2、CBT 3 之类，默认停在第一个。只有第一段选 Hoyo game 时才亮。</dd>
+        </div>
+      </dl>
+
+      <p>一共 75 个条目，光 Hoyo 系就占 17 个版本。别指望翻一翻就找到——先定厂商，再定版本。</p>
+
+      <div class="callout">
+        <h3>三个大类的标签和名单对不上</h3>
+        <p>按代码的实际行为走：<code>Encrypted game (pick if unsure)</code> 列的是 54 个加密游戏，标签写「不确定就选这个」，名副其实；<code>Other</code> 只列 3 个通用条目。找不到你的游戏，先翻第二项。</p>
+      </div>
+
+      <p>为什么必须选对：不同游戏用不同的锁和钥匙。选错时它拿 A 的钥匙开 B 的箱子，轻则列表空白，重则解出一堆名字乱码、尺寸不对、打不开的文件。它不会自动猜。</p>
+
+      <div class="callout">
+        <h3>点完 Confirm，界面几乎没变化</h3>
+        <p>正常的：选择只写进设置，下次加载才生效。想确认就开 <code>Debug</code> ▸ <code>Enable console</code>，日志里会有一行 <code>Target Game is …</code>。</p>
+      </div>
+
+      <h2 id="load">第二步 加载</h2>
+      <ol class="steps">
+        <li>
+          <h3>先试一个文件</h3>
+          <p>用 <code>File</code> ▸ <code>Load file</code>，随便挑一个 <code>.bundle</code> 或 <code>CAB-</code> 开头的文件。能解出一张立绘，就说明游戏选对了。</p>
+        </li>
+        <li>
+          <h3>再整个目录</h3>
+          <p>确认没问题后，用 <code>File</code> ▸ <code>Load folder</code> 指向游戏资源目录。它会递归读所有子目录，第一次跑完整目录会很慢。</p>
+        </li>
+        <li>
+          <h3>等状态栏走完</h3>
+          <p>加载期间左栏是空的，底部进度条在走，状态栏在刷。走完之前别急着点别的菜单项。</p>
+        </li>
+      </ol>
+
+      <p>慢是有原因的：它先把整个目录扫一遍，把资产读进一张表；开跑前还按数据量的 8.5 倍估内存，超过剩余内存就弹窗问你要不要继续。</p>
+
+      <div class="callout">
+        <h3>中途想停，用 File ▸ Abort</h3>
+        <p>它只取消当前这一步，已读进来的不会自动清空，取消后资产数可能显示 0。看到 0 别急着说「里面没东西」，重新加载一次再看。</p>
+      </div>
+
+      <h2 id="browse">第三步 浏览与预览</h2>
+      <p>左栏切到 <code>Asset List</code>：6 列，列名和顺序固定。</p>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-bar"><b>File</b><span>Options</span><span>Export</span><span>Filter Type</span><span>Maps</span><span>About</span></div>
+          <div class="ui-tabs">
+            <span class="ui-tab" aria-selected="false">Scene Hierarchy</span>
+            <span class="ui-tab" aria-selected="true">Asset List</span>
+            <span class="ui-tab" aria-selected="false">Asset Classes</span>
+          </div>
+          <div class="ui-body">
+            <div class="ui-cols"><span>Name</span><span>Container</span><span>Type</span><span>PathID</span><span>Size</span><span>SHA256</span></div>
+            <div class="ui-rowline"><span>char_1001_icon</span><span>icon</span><span>Texture2D</span><span>-4832910</span><span>512×512</span><span>a41f…</span></div>
+            <div class="ui-rowline is-selected"><span>char_1001_stand</span><span>char</span><span>Sprite</span><span>-4832902</span><span>1024×2048</span><span>7b02…</span></div>
+            <div class="ui-rowline"><span>bgm_title</span><span>audio</span><span>AudioClip</span><span>1288</span><span>2.1 MB</span><span>c9ee…</span></div>
+            <div class="ui-foot"><span>3 项示例</span><span>列名与顺序取自代码</span></div>
+          </div>
+        </div>
+        <figcaption>资产列表在回答「这里面有什么」。三张标签页共用左栏，按标签切换；列名与顺序照代码重画，数值只是按列名填的示例。</figcaption>
+      </figure>
+
+      <p>先用得上的只有三列：<code>Name</code> 是内部代号，<code>Container</code> 是它属于哪个小盒子，<code>Type</code> 是你过滤的依据。六列的逐条解释在<a href="gui.html">界面导览</a>里。</p>
+
+      <p>过滤有三条路：<code>Filter Type</code> 菜单按类型筛（菜单项按当前文件里出现过的类型动态生成）；<code>Asset List</code> 上方的搜索框；<code>Scene Hierarchy</code> 页的搜索框。后两个是正则，匹配 Name、Container、PathID 三列。</p>
+
+      <p>预览在右栏：图片、文本、音频、字体、网格都能点开；模型类要先在 <code>Options</code> ▸ <code>Advanced</code> 勾上 <code>Model preview enabled</code>。</p>
+
+      <div class="callout">
+        <h3>预览不读贴图</h3>
+        <p>它只把位置、法线、顶点色送进显卡，没有 UV，也不读材质。所以模型预览看到的是一团带明暗的灰白，这不是你操作错了——想看表面得导出。</p>
+      </div>
+
+      <h2 id="export">第四步 导出</h2>
+      <p><code>Export</code> 菜单里是 3 种范围 × 4 种格式，共 12 个入口：范围三项在菜单最上面，格式分在 <code>Raw</code>、<code>Dump</code>、<code>JSON</code> 三个子菜单里，不带子菜单的那三项就是默认的 <code>Convert</code>。</p>
+
+      <div class="table-wrap">
+        <table>
+          <caption>4 种格式：先选「要什么」，不是「选哪种算法」</caption>
+          <thead>
+            <tr><th>格式</th><th>产物</th><th>什么时候用</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>Convert</code>（默认）</td><td>按类型转：贴图变图片、模型变 FBX、音频变 WAV、文本变 TXT</td><td>九成情况用它，目标是「人能直接打开」</td></tr>
+            <tr><td><code>Raw</code></td><td>一律 <code>.dat</code>，原始字节不加工</td><td>要自己写程序处理，或怀疑 Convert 转坏了</td></tr>
+            <tr><td><code>Dump</code></td><td>一律 <code>.txt</code>，对象的字段文本</td><td>想扒开看这个对象内部到底存了什么</td></tr>
+            <tr><td><code>JSON</code></td><td>整个对象序列化成 <code>.json</code></td><td>想做版本对比、喂给别的工具</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>3 种范围：说的是「导哪些」，不是「导成什么」</caption>
+          <thead>
+            <tr><th>范围</th><th>具体导哪些</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>All assets</code></td><td>当前加载进来的全部资产</td></tr>
+            <tr><td><code>Selected assets</code></td><td>你在资产列表里选中的那几行</td></tr>
+            <tr><td><code>Filtered assets</code></td><td>过滤后列表上看到的全部，类型筛选和搜索框都算</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>两个典型操作：只导立绘，先在 <code>Filter Type</code> 勾 Texture2D 和 Sprite，再 <code>Export</code> ▸ <code>Filtered assets</code>；只导一张，列表里选中它，再 <code>Selected assets</code>。点下去先选文件夹，然后才开导。</p>
+
+      <div class="callout">
+        <h3>结束语里的 skipped 不一定是失败</h3>
+        <p>跳过的原因有两个：解不出来，或者同名文件已经存在——默认不覆盖，遇到同名直接跳过。想连号重导，先清空输出目录，或者打开 <code>Options</code> ▸ <code>Allow duplicates</code>。</p>
+      </div>
+
+      <h2 id="layout">输出目录怎么排</h2>
+      <p>排法由 <code>Export Options</code> 里的下拉决定，默认第一种，只影响目录结构，不影响导出内容。</p>
+
+      <div class="table-wrap">
+        <table>
+          <caption>四种布局</caption>
+          <thead>
+            <tr><th>布局</th><th>路径长什么样</th><th>适合谁</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>ByType</code>（默认）</td><td><code>输出目录\Texture2D\</code>、<code>输出目录\AudioClip\</code></td><td>想按类型翻，最简单</td></tr>
+            <tr><td><code>ByContainer</code></td><td><code>输出目录\它原来的容器路径\</code></td><td>想还原游戏里的目录结构</td></tr>
+            <tr><td><code>BySource</code></td><td><code>输出目录\源文件名_export\内部文件名\</code></td><td>想追溯每个文件来自哪个包</td></tr>
+            <tr><td><code>None</code></td><td>全部平铺在输出目录根下</td><td>只导几件东西时最省事</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>重名：默认不覆盖、直接跳过；打开允许重名后自动加序号（第二份叫 <code>名字 (1).png</code>），序号从 1 开始。资产名达到 260 个字符时，文件名会被换成随机名，之后认不出是谁。</p>
+
+      <h2 id="files">你会遇到的文件长什么样</h2>
+      <p>它判断文件类型靠读开头那几个字节，不看扩展名。所以改扩展名没用，也别因为「没有扩展名」就以为文件坏了。</p>
+
+      <div class="table-wrap">
+        <table>
+          <caption>资源目录里常见的东西</caption>
+          <thead>
+            <tr><th>你看到的东西</th><th>人话</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>.bundle</code>、<code>CAB-</code> 开头、或没有扩展名</td><td>快递箱：Unity 的资源包，开头写着 UnityFS</td></tr>
+            <tr><td><code>.assets</code>、<code>.resource</code>、<code>globalgamemanagers</code></td><td>箱子里的清单：记着这个箱子里有什么</td></tr>
+            <tr><td>同目录的 <code>.resS</code>、<code>.resource</code></td><td>大件货物的实体：贴图和音频的真身</td></tr>
+            <tr><td><code>.block</code></td><td>上百个加锁小包的合集，会逐个拆开读</td></tr>
+            <tr><td>开头是 <code>ENCR</code></td><td>加了锁的包，锁和钥匙按游戏不同</td></tr>
+            <tr><td><code>.split0</code>、<code>.split1</code>…</td><td>被切开的包，先拼回完整文件再读</td></tr>
+            <tr><td><code>blk</code>、<code>mhy0</code>/<code>mhy1</code>、<code>Blb</code> 系、<code>hyg</code> 系、VFS 系</td><td>各厂商自己的封箱方式，看文件头区分</td></tr>
+            <tr><td>以上都不像</td><td>当资源流文件处理，通常是贴图音频的实体数据</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout callout-warn">
+        <h3>单独拎一个 .assets 出来，常常导不出图</h3>
+        <p>贴图实体常常不在 <code>.assets</code> 里，而在同目录的 <code>.resS</code> 里，清单里只有一个取货位置。找不到那个文件，这一项就会报错跳过，连图都不生成。第一次跑，请用 <code>Load folder</code> 让它把整个目录一起读进去。</p>
+      </div>
+
+    </div>
+
+    <nav class="pager" aria-label="继续阅读">
+      <a href="gui.html"><span>下一页</span><b>界面导览</b></a>
+      <a href="faq.html"><span>或者</span><b>疑难解答</b></a>
+    </nav>
+  </main>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p class="foot-word">AnimeStudio</p>
+    <div class="foot-cols">
+      <div>
+        <h3>手册</h3>
+        <a href="start.html">五分钟上手</a>
+        <a href="gui.html">界面导览</a>
+        <a href="batch.html">批量与资产地图</a>
+        <a href="pipeline.html">它怎么工作</a>
+      </div>
+      <div>
+        <h3>继续</h3>
+        <a href="games.html">游戏与它们的锁</a>
+        <a href="faq.html">疑难解答</a>
+        <a href="dev.html">想改代码</a>
+      </div>
+      <div>
+        <h3>源码与下载</h3>
+        <a href="https://github.com/Escartem/AnimeStudio">GitHub 仓库</a>
+        <a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 构建</a>
+        <a href="https://github.com/Escartem/AnimeStudio/wiki">官方 wiki</a>
+      </div>
+    </div>
+    <p class="foot-note">本手册依据仓库当前源码整理，行为以代码为准。AnimeStudio 是 Studio 与 AssetStudio 的衍生项目，作者 Escartem。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

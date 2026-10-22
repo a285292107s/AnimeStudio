@@ -1,0 +1,8 @@
+{
+  "m_Name": "ItemConfig_1001",
+  "ItemName": {"Hash": 1234},
+  "ItemDesc": {"Hash": 5678},
+  "Rarity": 5,
+  "MaxLevel": 80,
+  "Sub": [{"TextmapID": "9012"}]
+}

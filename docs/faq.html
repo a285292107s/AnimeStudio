@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>疑难解答 · AnimeStudio 说明书</title>
+<meta name="description" content="AnimeStudio 疑难解答：加载空白、缺运行库、内存爆掉、名字乱码、贴图发黑、模型没贴图、FBX 没扩展名、音频没声音、导出数量变少、会不会改游戏文件、CLI 退出码恒 0。十四条常见问题，先给结论再给原因。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-theme="paper" data-page="faq">
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <a class="mark" href="index.html">
+    <span class="mark-plate">AS</span>
+    <span>AnimeStudio<span class="mark-sub"> 说明书</span></span>
+  </a>
+  <button class="navtoggle" data-navtoggle aria-expanded="false">目录</button>
+  <nav class="topnav" data-topnav aria-label="主导航">
+    <a href="start.html">上手</a>
+    <a href="gui.html">界面</a>
+    <a href="pipeline.html">原理</a>
+    <a href="games.html">游戏</a>
+    <a href="faq.html" aria-current="page">排错</a>
+    <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+  </nav>
+</header>
+
+<div class="wrap shell">
+  <aside class="sidenav" aria-label="手册目录">
+    <div class="sidenav-group">
+      <p class="sidenav-title">开始</p>
+      <a href="index.html">封面</a>
+      <a href="start.html">五分钟上手</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">用</p>
+      <a href="gui.html">界面导览</a>
+      <a href="batch.html">批量与资产地图</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">懂</p>
+      <a href="pipeline.html">它怎么工作</a>
+      <a href="games.html">游戏与它们的锁</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">其它</p>
+      <a href="faq.html" aria-current="page">疑难解答</a>
+      <a href="dev.html">想改代码</a>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="pagehead">
+      <h1>疑难解答</h1>
+      <p class="lead">十四个最常见的「不对」：先给结论，再给原因，最后一句「你可以这样做」。</p>
+      <div class="pagehead-extra">
+        <a class="btn" href="start.html">回到五分钟上手</a>
+        <a class="btn btn-quiet" href="batch.html">批量与资产地图</a>
+      </div>
+    </header>
+
+    <div class="toc">
+      <p>本页内容</p>
+      <a href="#open">打不开</a>
+      <a href="#wrong">打开了但不对</a>
+      <a href="#export">导出后不对</a>
+      <a href="#app">程序本身</a>
+    </div>
+
+    <div class="prose">
+      <h2 id="open">打不开</h2>
+      <div class="faq">
+        <details open>
+          <summary>加载完一片空白，导出时状态栏说没有可导出资产</summary>
+          <div class="faq-body">
+            <p>九成是游戏选错了，剩下一成是只加载了一个没有依赖的文件。它不看扩展名、只看文件头，而解密方式由你选的那个游戏条目决定；条目不对，箱子能认出来，盒子的锁打不开，资产表就是空的。</p>
+            <p>你可以：<code>Options</code> ▸ <code>Select Game</code> 重选，再用 <code>File</code> ▸ <code>Load folder</code> 整目录重来。</p>
+          </div>
+        </details>
+        <details>
+          <summary>双击没反应，或者提示缺 .NET 桌面运行时</summary>
+          <div class="faq-body">
+            <p>缺的是 .NET Desktop Runtime，不是普通的 .NET Runtime；而且它只支持 64 位 Windows。两个 exe 都是自宿主程序，你下的是哪个版本就要装哪个版本的桌面运行时，x64 架构。</p>
+            <p>你可以：按版本装对应的桌面运行时再双击；32 位系统没有可用的构建，换机器是唯一办法。</p>
+          </div>
+        </details>
+        <details>
+          <summary>加载大目录跑到一半，内存爆掉</summary>
+          <div class="faq-body">
+            <p>它在加载时把整个目录的资产塞进一张表，内存按数据量的 8.5 倍估算。单个包解压后小于 512MB 会整块放内存，超过就落成一个临时文件、关闭即删，但资产表本身还是全量。</p>
+            <p>你可以：分批加载、先按类型过滤再导出；或者开 <code>Options</code> ▸ <code>Skip container recovery</code> 少走一步（代价是 Container 列没有名字）；真跑不动就换 CLI，它一次只持有一个文件。</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="wrong">打开了但不对</h2>
+      <div class="faq">
+        <details>
+          <summary>资产名是乱码，导出的文件也打不开</summary>
+          <div class="faq-body">
+            <p>游戏条目选错，它拿错了钥匙。每个条目自带一套解密参数，字节一旦错位，名字、尺寸、内容就全是垃圾——这不是编码问题，改系统区域设置也没用。</p>
+            <p>你可以：确认厂商和版本都对上（Live 与 CBT 是两套完全不同的锁），重选之后重新加载。</p>
+          </div>
+        </details>
+        <details>
+          <summary>资产数量比游戏体积少得多</summary>
+          <div class="faq-body">
+            <p>通常是你只加载了一个包，而不是全部。一个 <code>.assets</code> 只是清单，贴图实体常在同目录的 <code>.resS</code> 里；手动挑文件时，它只能顺着已经读进来的文件去找依赖。</p>
+            <p>你可以：用 <code>File</code> ▸ <code>Load folder</code> 整目录加载；目录太大就先做一份资产地图，精确定位之后再回捞。</p>
+          </div>
+        </details>
+        <details>
+          <summary>模型是灰白的，看不到贴图</summary>
+          <div class="faq-body">
+            <p>这是设计如此，不是导出坏了。3D 预览只把位置、法线、顶点色三样送进显卡，不读 UV、也不读材质；导出的 FBX 里同样只有几何体，材质会另外存在输出目录的 <code>Materials</code> 下，一个材质一份 json。</p>
+            <p>你可以：单独导出 Texture2D 拿到图，再在 3D 软件里手动挂上。</p>
+          </div>
+        </details>
+        <details>
+          <summary>中文路径和超长文件名会不会出问题</summary>
+          <div class="faq-body">
+            <p>中文路径没问题，超长文件名有问题。它全程走 Windows 的 Unicode 接口，中文目录名照常读写；但资产名达到 260 个字符时，导出文件名会被换成随机名，之后就认不出是谁了。</p>
+            <p>你可以：把输出目录放浅一点，导出前留意那些名字特别长的条目。</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="export">导出后不对</h2>
+      <div class="faq">
+        <details>
+          <summary>导出的贴图全黑，或者只有半张</summary>
+          <div class="faq-body">
+            <p>多半是数据没找齐，不是图坏了。贴图实体常在同目录的 <code>.resS</code> 里，清单里只写了个取货位置；找不到那个文件，这一项会直接报错跳过，连图都不生成。压缩格式不认识时同样跳过。</p>
+            <p>你可以：整目录加载之后再导；还不行就换成 <code>Raw</code> 导出，拿到原始字节自己处理。</p>
+          </div>
+        </details>
+        <details>
+          <summary>模型导出了，但 FBX 没有扩展名</summary>
+          <div class="faq-body">
+            <p>这是 CLI 的已知问题，GUI 不受影响。走命令行导出 Animator 时，它把目录路径直接当成了 FBX 的文件名，产物没有 <code>.fbx</code> 后缀。</p>
+            <p>你可以：手动补上 <code>.fbx</code> 就能打开；或者改用 GUI 导出这一类资产。</p>
+          </div>
+        </details>
+        <details>
+          <summary>音频导出来没有声音</summary>
+          <div class="faq-body">
+            <p>先看扩展名。是 <code>.wav</code> 说明转成功了，没声音多半是播放器或音量问题；是 <code>.fsb</code> 说明它跳过了转换、把原始数据原样写了出来。只有 PCM、Vorbis、ADPCM、MP3、XMA 这几种能转 WAV，其它编码一律落成 <code>.fsb</code>（AAC 是 <code>.m4a</code>），普通播放器不认这两种容器。</p>
+            <p>你可以：用能读 FSB 容器的工具再转一次。</p>
+          </div>
+        </details>
+        <details>
+          <summary>导出的数量比选的少</summary>
+          <div class="faq-body">
+            <p>多数是「文件已经存在」，不是失败。默认不覆盖同名文件，遇到同名直接跳过；结束时那句跳过提示把「解不出来」和「已经有了」合并在一起，看不出区别。</p>
+            <p>你可以：清空输出目录重导，或者打开 <code>Options</code> ▸ <code>Allow duplicates</code>，让重名文件自动加序号。</p>
+          </div>
+        </details>
+      </div>
+
+      <h2 id="app">程序本身</h2>
+      <div class="faq">
+        <details>
+          <summary>它会修改我的游戏文件吗</summary>
+          <div class="faq-body">
+            <p>会写，但只写一种：分片包。加载前它会把 <code>.split0</code>、<code>.split1</code> 按顺序拼成一个完整文件，放回这些碎片所在的目录，然后才去读这个新文件；同名文件已存在就跳过，也不会删你的碎片。</p>
+            <p>你可以：先把游戏目录复制一份再动手，至少备份一次。</p>
+          </div>
+        </details>
+        <details>
+          <summary>需要联网吗，杀毒软件报毒正常吗</summary>
+          <div class="faq-body">
+            <p>不需要联网。唯一会联网的菜单项是从 GitHub 拉 Asset Index，它在源码里根本没接上事件，点了没有反应；其余功能全在本机跑。至于报毒：它要读别人的二进制、解密、再写出文件，exe 又没做数字签名，构建时还被改写过入口路径——这几样加在一起，杀软按行为打分很容易拦。仓库里没有关于误报的正式说明，所以这条只能你自己判断。</p>
+            <p>你可以：只从项目发布页下载，别用来路不明的包；确认来源可靠之后再决定要不要加白名单。</p>
+          </div>
+        </details>
+        <details>
+          <summary>CLI 明明失败了，却返回 0</summary>
+          <div class="faq-body">
+            <p>它的退出码永远是 0，别拿退出码判断成败。命令行入口拿到执行结果后没有把返回值传出去，内部异常也被吞掉，所以不管是导出失败还是路径写错，进程都正常退出。</p>
+            <p>你可以：用输出目录里的文件数量和日志内容判断，或者在外面包一层检查产物。</p>
+          </div>
+        </details>
+      </div>
+
+    </div>
+
+    <nav class="pager" aria-label="继续阅读">
+      <a href="dev.html"><span>下一页</span><b>想改代码</b></a>
+      <a href="start.html"><span>或者</span><b>五分钟上手</b></a>
+    </nav>
+  </main>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p class="foot-word">AnimeStudio</p>
+    <div class="foot-cols">
+      <div>
+        <h3>手册</h3>
+        <a href="start.html">五分钟上手</a>
+        <a href="gui.html">界面导览</a>
+        <a href="batch.html">批量与资产地图</a>
+        <a href="pipeline.html">它怎么工作</a>
+      </div>
+      <div>
+        <h3>继续</h3>
+        <a href="games.html">游戏与它们的锁</a>
+        <a href="faq.html">疑难解答</a>
+        <a href="dev.html">想改代码</a>
+      </div>
+      <div>
+        <h3>源码与下载</h3>
+        <a href="https://github.com/Escartem/AnimeStudio">GitHub 仓库</a>
+        <a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 构建</a>
+        <a href="https://github.com/Escartem/AnimeStudio/wiki">官方 wiki</a>
+      </div>
+    </div>
+    <p class="foot-note">本手册依据仓库当前源码整理，行为以代码为准。AnimeStudio 是 Studio 与 AssetStudio 的衍生项目，作者 Escartem。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>游戏与它们的锁 · AnimeStudio 说明书</title>
+<meta name="description" content="为什么打开资源包前必须先选对游戏：三层锁、八个加密家族，以及 75 个游戏条目的完整对照表。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-theme="paper" data-page="games">
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <a class="mark" href="index.html">
+    <span class="mark-plate">AS</span>
+    <span>AnimeStudio<span class="mark-sub"> 说明书</span></span>
+  </a>
+  <button class="navtoggle" data-navtoggle aria-expanded="false">目录</button>
+  <nav class="topnav" data-topnav aria-label="主导航">
+    <a href="start.html">上手</a>
+    <a href="gui.html">界面</a>
+    <a href="pipeline.html">原理</a>
+    <a href="games.html" aria-current="page">游戏</a>
+    <a href="faq.html">排错</a>
+    <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+  </nav>
+</header>
+
+<div class="wrap shell">
+  <aside class="sidenav" aria-label="手册目录">
+    <div class="sidenav-group">
+      <p class="sidenav-title">开始</p>
+      <a href="index.html">封面</a>
+      <a href="start.html">五分钟上手</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">用</p>
+      <a href="gui.html">界面导览</a>
+      <a href="batch.html">批量与资产地图</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">懂</p>
+      <a href="pipeline.html">它怎么工作</a>
+      <a href="games.html" aria-current="page">游戏与它们的锁</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">其它</p>
+      <a href="faq.html">疑难解答</a>
+      <a href="dev.html">想改代码</a>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="pagehead">
+      <h1>游戏与它们的锁</h1>
+      <p class="lead">同一个包，选错游戏不会只是打不开，更常见的是解出一堆垃圾字节。这一页讲清锁在哪、钥匙从哪来，以及该选哪个条目。</p>
+      <div class="pagehead-extra">
+        <a class="btn" href="#table">直接查 75 个条目</a>
+        <a class="btn btn-quiet" href="start.html">先看五分钟上手</a>
+      </div>
+    </header>
+
+    <div class="prose">
+      <div class="toc">
+        <p>本页内容</p>
+        <a href="#why">先选游戏，再谈打开</a>
+        <a href="#layers">三层锁：箱子、箱盖、箱内</a>
+        <a href="#families">八个家族，八种钥匙</a>
+        <a href="#cbt">CBT 为什么单独列</a>
+        <a href="#table">75 个条目，一页查完</a>
+        <a href="#limits">它不是万能钥匙</a>
+        <a href="#sources">依据</a>
+      </div>
+
+      <h2 id="why">先选游戏，再谈打开</h2>
+      <p>工具打开资源包之前，先要知道这是谁的锁。<code>--game</code> 不是备注，而是分岔路口：它决定工具走哪一套开锁流程。图形界面里的下拉框，填的是同一个值。</p>
+      <p>资源包的文件名靠不住。不同游戏都可能把包叫成 <code>resources.bundle</code>，但里面的头、块表、数据块写法各不相同。你拿 A 游戏的钥匙去开 B 游戏的锁，常见结果不是一句「打不开」，而是：有些层根本不校验钥匙，错了也继续解，最后给你一堆看起来像数据的垃圾字节——花屏贴图、畸形模型、读到一半报错。</p>
+      <p>这就是「同一把锁换一把钥匙」的意思：插不进去，或者勉强转动，打开却是别人的箱子。钥匙不对，锁不会替你纠正，只会把箱子里的东西换一种方式弄坏。先选对游戏，后面每一层才有意义。</p>
+      <div class="callout callout-warn">
+        <h3>选错时，工具通常不会主动告诉你</h3>
+        <p>它只会安静地解出错误结果。看到贴图颜色错乱、模型顶点飞散、文本全是乱码，先回头检查游戏条目，而不是怀疑导出设置。</p>
+      </div>
+
+      <h2 id="layers">三层锁：箱子、箱盖、箱内</h2>
+      <p>把资源包想成一个快递箱。AnimeStudio 要在三个位置开锁，三层可以单独出现，也可以叠在一起。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>三层锁各自管什么，以及你在真实游戏里会碰到什么</caption>
+          <thead>
+            <tr><th scope="col">层</th><th scope="col">这一层在做什么</th><th scope="col">真实例子</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>整文件级</td>
+              <td>箱子外面又包了一层假箱子，或者整箱被重新排过。工具先剥掉这层，换出一个新的文件阅读器。</td>
+              <td>偶像梦幻祭的整文件重排、闪耀暖暖的假头、Naraka 的包头偏移</td>
+            </tr>
+            <tr>
+              <td>容器头级</td>
+              <td>箱盖上的运单和清单被改过：版本、长度、块表字段要按游戏规则读回来。</td>
+              <td>UnityCN 的密钥区块、HoYoverse 的 mhy 容器、腾讯 Blb / HYG、终末地 VFS</td>
+            </tr>
+            <tr>
+              <td>数据块级</td>
+              <td>箱子里的每件货各自上锁，或者换了包装；解压前后还可能再做一次 XOR、AES 或 RC4。</td>
+              <td>HoYoverse 的 mr0k、网易从密文派生钥匙、UnityCN 的半字节替换</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>三层不是三选一。星穹铁道的 <code>.block</code> 里套着 ENCR，ENCR 里再套 UnityFS，块本身还走 mr0k 和 Oodle。只开对一层，后面仍然读不出来。</p>
+      <div class="callout">
+        <h3>先认层，再认家族</h3>
+        <p>层回答「锁在箱子的哪个位置」，家族回答「这把锁是谁做的、钥匙从哪来」。两个问题分开看，表就不会乱。</p>
+      </div>
+
+      <h2 id="families">八个家族，八种钥匙</h2>
+      <p>工具把写法相近的游戏归成八个家族。家族不是按厂商名气分的，而是按「钥匙从哪来、在哪一层开锁」分的。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>八个加密家族：钥匙来源与工具里的选项</caption>
+          <thead>
+            <tr><th scope="col">家族</th><th scope="col">典型游戏</th><th scope="col">钥匙从哪来</th><th scope="col">你在工具里选什么</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>明文 Unity</td>
+              <td>原生 Unity 游戏</td>
+              <td>不需要</td>
+              <td>选 <code>Unity</code></td>
+            </tr>
+            <tr>
+              <td>UnityCN</td>
+              <td>战双帕弥什、少女前线：云图计划、蓝色星原：旅谣、猫咪幻想等约 24 款</td>
+              <td><code>CNKeys.json</code> 里的一行，放在 exe 同目录；内置 24 条，也可以自己加一行</td>
+              <td>选 <code>Unity CN</code> 下的条目；没收录就选 <code>UnityCN Custom Key</code> 自填</td>
+            </tr>
+            <tr>
+              <td>HoYoverse 系</td>
+              <td>原神、崩坏3、崩坏：星穹铁道、绝区零、未定事件簿</td>
+              <td>内置常量，跟着条目走</td>
+              <td>先选游戏，再选版本（Live / Pack / CBT）</td>
+            </tr>
+            <tr>
+              <td>腾讯 Blb / HYG</td>
+              <td>Nexus Anima、Petit Planet 等使用 Blb / HYG 容器的条目</td>
+              <td>内置常量</td>
+              <td>选对应条目</td>
+            </tr>
+            <tr>
+              <td>鹰角 Endfield</td>
+              <td>明日方舟：终末地（Live / CBT1 / CBT2 / CBT3）</td>
+              <td>内置常量，CB1 / CB2 各一套</td>
+              <td>选 <code>Arknights Endfield</code> 或对应 CBT 条目</td>
+            </tr>
+            <tr>
+              <td>网易</td>
+              <td>网易系游戏（<code>Net Ease</code> 条目）</td>
+              <td>不需要外部钥匙，从文件自身前 32 字节派生</td>
+              <td>选 <code>Net Ease</code></td>
+            </tr>
+            <tr>
+              <td>厂商自有整文件加密</td>
+              <td>偶像梦幻祭、闪耀暖暖、重返未来1999、少女前线、世界计划、恋与深空、动物派对等十余家</td>
+              <td>内置常量，或从文件自身读取</td>
+              <td>选对应条目</td>
+            </tr>
+            <tr>
+              <td>格式变体</td>
+              <td>来自星尘、明日方舟、Rewinding Cadence</td>
+              <td>不需要钥匙，但结构不同</td>
+              <td>选对应条目，否则会读出错位的数据</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>每个家族的手法也不一样：UnityCN 是包头 AES 白化加块级半字节替换；HoYoverse 分 mhy、mr0k、blk 三种变体；腾讯系用定制 AES、变体 RC4 和 16 字节重排；终末地是 VFS 加 FairGuard；网易从密文自身派生钥匙。</p>
+      <p>表格里最需要留意的是 UnityCN 和 HoYoverse。前者可以自己往 <code>CNKeys.json</code> 加钥匙，后者同一个游戏的不同测试阶段要选不同条目。</p>
+
+      <h3>单包多 bundle 不是第九个家族</h3>
+      <p>你还会看到 <code>.block</code>、<code>ENCR</code>、<code>.lpak</code>、VFS 这些词。它们大多在说「一个文件里塞了几个包」，不是一种新的锁。一个 <code>.block</code> 里可能有几十个 ENCR，每个 ENCR 里再套一个 UnityFS；<code>.lpak</code> 里也可能并排躺着多个 UnityFS。</p>
+      <p>工具会读包头里的长度字段，和文件实际长度比一比。对不上，就把它降级成块文件，逐个拆开。这个形态可以叠加在八个家族中的任何一个上，所以不单独算第九个家族。</p>
+
+      <h2 id="cbt">CBT 为什么单独列</h2>
+      <p>测试版不是「旧一点的正式版」。版本一换，包头、常量、块处理都可能换一套。工具没法从文件内容猜出你手里是哪一版，只能让你选。</p>
+      <p>所以同一个游戏会出现多个条目：原神有 Live、Pack、CBT 1、CBT 2、CBT 3、CBT 3 Pre；终末地有 Live、CBT1、CBT2、CBT3。CBT2 和 CBT3 可能只差一处头部处理，但选错就是整条链路对不上。</p>
+      <p>星穹铁道和绝区零也各自保留了测试条目。看到条目名里带 CBT，先确认你的客户端版本，再选对应条目。正式服的文件不要选 CBT 条目，测试版的文件也不要指望正式服条目能兜底。</p>
+
+      <h2 id="table">75 个条目，一页查完</h2>
+      <p>下面这张表按工具里的分组排列。第一列就是命令行 <code>--game</code> 要填的值，也是图形界面下拉框里的名字。输入游戏名、中文名或条目名都能筛选，也可以按家族缩小范围。「版本」列里的「默认」表示这个条目只有一个版本；特殊条目会直接标成「隐藏条目」或「旧钥匙」。</p>
+      <p><input data-games-search type="search" placeholder="搜游戏名或条目名" aria-label="搜游戏名或条目名"> <select data-games-family aria-label="按家族筛选"><option value="">全部家族</option><option value="plain">明文 Unity</option><option value="unitycn">UnityCN</option><option value="hoyo">HoYoverse 系</option><option value="tencent">腾讯 Blb / HYG</option><option value="endfield">鹰角 Endfield</option><option value="netease">网易</option><option value="vendor">厂商自有加密</option><option value="variant">格式变体</option></select> <span data-games-count></span></p>
+      <p>75 个条目里有 2 条特殊条目：<code>UnityCN</code> 是隐藏的通用条目，只在命令行可见；<code>PGR_CN_JP_TW_OLD</code> 是旧版备用钥匙。普通使用从其余条目里选。</p>
+      <div class="table-wrap">
+        <table data-games-table>
+          <caption>75 个条目 · 其中 2 条是特殊条目，1 条只在命令行可见 · 表里的名字就是命令行 --game 要填的值</caption>
+          <thead>
+            <tr><th scope="col">工具里的名字</th><th scope="col">游戏</th><th scope="col">版本</th><th scope="col">家族</th><th scope="col">一句话</th></tr>
+          </thead>
+          <tbody>
+            <tr data-family="hoyo" data-search="gi live 原神 hoyoverse mihoyo 米哈游 genshin impact yuanshen">
+              <td><code>GI</code></td>
+              <td>原神</td>
+              <td>Live</td>
+              <td>HoYoverse</td>
+              <td>正式服。容器是 mhy 变体，块级走 mr0k。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="gi_pack pack 原神 hoyoverse mihoyo 米哈游 genshin impact yuanshen">
+              <td><code>GI_<wbr>Pack</code></td>
+              <td>原神</td>
+              <td>Pack</td>
+              <td>HoYoverse</td>
+              <td>打包形态，整文件先过一次解密，再当块文件拆。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="gi_cb1 cbt 1 原神 hoyoverse mihoyo 米哈游 genshin impact yuanshen">
+              <td><code>GI_<wbr>CB1</code></td>
+              <td>原神</td>
+              <td>CBT 1</td>
+              <td>HoYoverse</td>
+              <td>一测，整文件头部与现在不同。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="gi_cb2 cbt 2 原神 hoyoverse mihoyo 米哈游 genshin impact yuanshen">
+              <td><code>GI_<wbr>CB2</code></td>
+              <td>原神</td>
+              <td>CBT 2</td>
+              <td>HoYoverse</td>
+              <td>二测，头部换成 按固定种子生成的异或垫。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="gi_cb3 cbt 3 原神 hoyoverse mihoyo 米哈游 genshin impact yuanshen">
+              <td><code>GI_<wbr>CB3</code></td>
+              <td>原神</td>
+              <td>CBT 3</td>
+              <td>HoYoverse</td>
+              <td>三测，与二测同一套头处理。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="gi_cb3pre cbt 3 pre 原神 hoyoverse mihoyo 米哈游 genshin impact yuanshen">
+              <td><code>GI_<wbr>CB3<wbr>Pre</code></td>
+              <td>原神</td>
+              <td>CBT 3 Pre</td>
+              <td>HoYoverse</td>
+              <td>三测前置版本，mhy 与 blk 叠加。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="bh3 live 崩坏3 hoyoverse mihoyo 米哈游 honkai impact 3rd beng huai 3">
+              <td><code>BH3</code></td>
+              <td>崩坏3</td>
+              <td>Live</td>
+              <td>HoYoverse</td>
+              <td>正式服，加密头 + mr0k 块。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="bh3pre pre 崩坏3 hoyoverse mihoyo 米哈游 honkai impact 3rd beng huai 3">
+              <td><code>BH3<wbr>Pre</code></td>
+              <td>崩坏3</td>
+              <td>Pre</td>
+              <td>HoYoverse</td>
+              <td>预下载形态。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="bh3prepre pre 崩坏3 hoyoverse mihoyo 米哈游 honkai impact 3rd beng huai 3">
+              <td><code>BH3<wbr>Pre<wbr>Pre</code></td>
+              <td>崩坏3</td>
+              <td>Pre Pre</td>
+              <td>HoYoverse</td>
+              <td>更早的预下载形态。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="sr live 崩坏：星穹铁道 hoyoverse mihoyo 米哈游 honkai star rail xingqiong tiedao">
+              <td><code>SR</code></td>
+              <td>崩坏：星穹铁道</td>
+              <td>Live</td>
+              <td>HoYoverse</td>
+              <td>正式服，mr0k + Oodle 压缩，常见 .block 套 ENCR。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="sr_cb2 cbt 2 崩坏：星穹铁道 hoyoverse mihoyo 米哈游 honkai star rail xingqiong tiedao">
+              <td><code>SR_<wbr>CB2</code></td>
+              <td>崩坏：星穹铁道</td>
+              <td>CBT 2</td>
+              <td>HoYoverse</td>
+              <td>二测，与正式服同一套密钥但包结构更简。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="zzz live 绝区零 hoyoverse mihoyo 米哈游 zenless zone zero juequ ling">
+              <td><code>ZZZ</code></td>
+              <td>绝区零</td>
+              <td>Live</td>
+              <td>HoYoverse</td>
+              <td>正式服，mhy 容器 + Oodle；网格要额外做一次重挂。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="zzz_cb1 cbt 1 绝区零 hoyoverse mihoyo 米哈游 zenless zone zero juequ ling">
+              <td><code>ZZZ_<wbr>CB1</code></td>
+              <td>绝区零</td>
+              <td>CBT 1</td>
+              <td>HoYoverse</td>
+              <td>一测，mr0k 路线。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="zzz_cb2 cbt 2 绝区零 hoyoverse mihoyo 米哈游 zenless zone zero juequ ling">
+              <td><code>ZZZ_<wbr>CB2</code></td>
+              <td>绝区零</td>
+              <td>CBT 2</td>
+              <td>HoYoverse</td>
+              <td>二测，mhy 容器会被当成块文件再拆一层。</td>
+            </tr>
+            <tr data-family="tencent" data-search="hna_cb1 cbt 1 nexus anima 腾讯 blb / hyg tencent">
+              <td><code>HNA_<wbr>CB1</code></td>
+              <td>Nexus Anima</td>
+              <td>CBT 1</td>
+              <td>腾讯 Blb / HYG</td>
+              <td>走腾讯 Blb 容器那套。</td>
+            </tr>
+            <tr data-family="tencent" data-search="hyg_cb1 cbt 1 petit planet 腾讯 blb / hyg tencent">
+              <td><code>HYG_<wbr>CB1</code></td>
+              <td>Petit Planet</td>
+              <td>CBT 1</td>
+              <td>腾讯 Blb / HYG</td>
+              <td>HYG 容器，大端写法。</td>
+            </tr>
+            <tr data-family="hoyo" data-search="tot live 未定事件簿 hoyoverse mihoyo 米哈游 tears of themis weiding shijianbu">
+              <td><code>TOT</code></td>
+              <td>未定事件簿</td>
+              <td>Live</td>
+              <td>HoYoverse</td>
+              <td>mr0k，解完还要再做一次尾部密钥处理。</td>
+            </tr>
+            <tr data-family="vendor" data-search="naraka 永劫无间 厂商自有加密 vendor 厂商 整文件 bladepoint yongjie wujian">
+              <td><code>Naraka</code></td>
+              <td>永劫无间</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>包头字段整体偏移了一个固定值，包内可能是多个 bundle。</td>
+            </tr>
+            <tr data-family="vendor" data-search="ensemblestars ensemble stars 偶像梦幻祭 厂商自有加密 vendor 厂商 整文件 ouxiang menghuanji">
+              <td><code>Ensemble<wbr>Stars</code></td>
+              <td>偶像梦幻祭</td>
+              <td>Ensemble Stars</td>
+              <td>厂商加密</td>
+              <td>整文件按固定方案重排。</td>
+            </tr>
+            <tr data-family="vendor" data-search="opfp 厂商自有加密 vendor 厂商 整文件">
+              <td><code>OPFP</code></td>
+              <td>OPFP</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>假头 + 按路径派生密钥的块级异或。</td>
+            </tr>
+            <tr data-family="vendor" data-search="fakeheader fake header 厂商自有加密 vendor 厂商 整文件">
+              <td><code>Fake<wbr>Header</code></td>
+              <td>Fake Header</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>文件开头被换成一层假头，先剥掉才看得见 UnityFS。</td>
+            </tr>
+            <tr data-family="vendor" data-search="fantasyofwind fantasy of wind 厂商自有加密 vendor 厂商 整文件">
+              <td><code>Fantasy<wbr>Of<wbr>Wind</code></td>
+              <td>Fantasy of Wind</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="shiningnikki shining nikki 闪耀暖暖 厂商自有加密 vendor 厂商 整文件 shanyao nuannuan">
+              <td><code>Shining<wbr>Nikki</code></td>
+              <td>闪耀暖暖</td>
+              <td>Shining Nikki</td>
+              <td>厂商加密</td>
+              <td>与 Fake Header 共用同一套剥头逻辑。</td>
+            </tr>
+            <tr data-family="vendor" data-search="helixwaltz2 helix waltz 2 螺旋圆舞曲2 厂商自有加密 vendor 厂商 整文件 luoxuan yuanwuqu">
+              <td><code>Helix<wbr>Waltz2</code></td>
+              <td>螺旋圆舞曲2</td>
+              <td>Helix Waltz 2</td>
+              <td>厂商加密</td>
+              <td>整个文件按它自己的规则解析，再交给标准 Unity 流程。</td>
+            </tr>
+            <tr data-family="netease" data-search="netease net ease 网易系游戏 网易 wangyi">
+              <td><code>Net<wbr>Ease</code></td>
+              <td>网易系游戏</td>
+              <td>Net Ease</td>
+              <td>网易</td>
+              <td>密钥从密文自身派生，不需要钥匙文件。</td>
+            </tr>
+            <tr data-family="vendor" data-search="anchorpanic anchor panic 厂商自有加密 vendor 厂商 整文件">
+              <td><code>Anchor<wbr>Panic</code></td>
+              <td>Anchor Panic</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="dreamscapealbireo dreamscape albireo 厂商自有加密 vendor 厂商 整文件">
+              <td><code>Dreamscape<wbr>Albireo</code></td>
+              <td>Dreamscape Albireo</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="imaginaryfest imaginary fest 厂商自有加密 vendor 厂商 整文件">
+              <td><code>Imaginary<wbr>Fest</code></td>
+              <td>Imaginary Fest</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="alicegearaegis alice gears aegis 爱丽丝机甲 厂商自有加密 vendor 厂商 整文件 gear ailisi jijia">
+              <td><code>Alice<wbr>Gear<wbr>Aegis</code></td>
+              <td>爱丽丝机甲</td>
+              <td>Alice Gears Aegis</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="projectsekai project sekai 世界计划 厂商自有加密 vendor 厂商 整文件 shijie jihua puroseka">
+              <td><code>Project<wbr>Sekai</code></td>
+              <td>世界计划</td>
+              <td>Project Sekai</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="codenamejump codename jump 厂商自有加密 vendor 厂商 整文件">
+              <td><code>Codename<wbr>Jump</code></td>
+              <td>Codename Jump</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="girlsfrontline girls frontline 少女前线 厂商自有加密 vendor 厂商 整文件 shaonyu qianxian">
+              <td><code>Girls<wbr>Frontline</code></td>
+              <td>少女前线</td>
+              <td>Girls Frontline</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="reverse1999 reverse: 1999 重返未来1999 厂商自有加密 vendor 厂商 整文件 reverse chongfan weilai">
+              <td><code>Reverse1999</code></td>
+              <td>重返未来1999</td>
+              <td>Reverse: 1999</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="endfield" data-search="arknightsendfield arknights endfield 明日方舟：终末地 鹰角 fairguard vfs mingri fangzhou zhongmodi">
+              <td><code>Arknights<wbr>Endfield</code></td>
+              <td>明日方舟：终末地</td>
+              <td>Live</td>
+              <td>鹰角 Endfield</td>
+              <td>VFS 容器 + FairGuard 块解密，最新一套常量。</td>
+            </tr>
+            <tr data-family="endfield" data-search="arknightsendfieldcb3 arknights endfield cbt3 明日方舟：终末地 鹰角 fairguard vfs mingri fangzhou zhongmodi">
+              <td><code>Arknights<wbr>Endfield<wbr>CB3</code></td>
+              <td>明日方舟：终末地</td>
+              <td>CBT 3</td>
+              <td>鹰角 Endfield</td>
+              <td>三测，容器头混淆方式与正式服相同。</td>
+            </tr>
+            <tr data-family="endfield" data-search="arknightsendfieldcb2 arknights endfield cbt2 明日方舟：终末地 鹰角 fairguard vfs mingri fangzhou zhongmodi">
+              <td><code>Arknights<wbr>Endfield<wbr>CB2</code></td>
+              <td>明日方舟：终末地</td>
+              <td>CBT 2</td>
+              <td>鹰角 Endfield</td>
+              <td>二测，常量与正式服不同，且常见多包结构。</td>
+            </tr>
+            <tr data-family="endfield" data-search="arknightsendfieldcb1 arknights endfield cbt1 明日方舟：终末地 鹰角 fairguard vfs mingri fangzhou zhongmodi">
+              <td><code>Arknights<wbr>Endfield<wbr>CB1</code></td>
+              <td>明日方舟：终末地</td>
+              <td>CBT 1</td>
+              <td>鹰角 Endfield</td>
+              <td>一测，最早一套常量。</td>
+            </tr>
+            <tr data-family="variant" data-search="arknights 明日方舟 格式变体 variant 格式 变体 mingri fangzhou">
+              <td><code>Arknights</code></td>
+              <td>明日方舟</td>
+              <td>默认</td>
+              <td>格式变体</td>
+              <td>用非标准 LZ4 变体压缩，不换条目会解压失败。</td>
+            </tr>
+            <tr data-family="vendor" data-search="jjkphantomparade jjk phantom parade 咒术回战 幻影游行 厂商自有加密 vendor 厂商 整文件">
+              <td><code>JJKPhantom<wbr>Parade</code></td>
+              <td>咒术回战 幻影游行</td>
+              <td>JJK Phantom Parade</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="muvluvdimensions muv-luv dimensions 厂商自有加密 vendor 厂商 整文件">
+              <td><code>Muv<wbr>Luv<wbr>Dimensions</code></td>
+              <td>Muv-Luv Dimensions</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="partyanimals party animals 动物派对 厂商自有加密 vendor 厂商 整文件 dongwu paodui">
+              <td><code>Party<wbr>Animals</code></td>
+              <td>动物派对</td>
+              <td>Party Animals</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="loveanddeepspace love and deepspace 恋与深空 厂商自有加密 vendor 厂商 整文件 lianyu shenkong">
+              <td><code>Love<wbr>And<wbr>Deepspace</code></td>
+              <td>恋与深空</td>
+              <td>Love and Deepspace</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="vendor" data-search="schoolgirlstrikers schoolgirl strikers 厂商自有加密 vendor 厂商 整文件">
+              <td><code>School<wbr>Girl<wbr>Strikers</code></td>
+              <td>Schoolgirl Strikers</td>
+              <td>默认</td>
+              <td>厂商加密</td>
+              <td>整个文件先解一次密，再按标准 Unity 解析。</td>
+            </tr>
+            <tr data-family="variant" data-search="exastris 来自星尘 格式变体 variant 格式 变体 ex astris laizi xingchen">
+              <td><code>Ex<wbr>Astris</code></td>
+              <td>来自星尘</td>
+              <td>默认</td>
+              <td>格式变体</td>
+              <td>非标准 LZ4 变体，贴图与网格字段也另有一套读法。</td>
+            </tr>
+            <tr data-family="variant" data-search="perpetualnovelty perpetual novelty 格式变体 variant 格式 变体">
+              <td><code>Perpetual<wbr>Novelty</code></td>
+              <td>Perpetual Novelty</td>
+              <td>默认</td>
+              <td>格式变体</td>
+              <td>包头的 blocksInfo 有特殊写法。</td>
+            </tr>
+            <tr data-family="variant" data-search="rewindingcadence rewinding cadence 格式变体 variant 格式 变体">
+              <td><code>Rewinding<wbr>Cadence</code></td>
+              <td>Rewinding Cadence</td>
+              <td>默认</td>
+              <td>格式变体</td>
+              <td>没加密，但网格、材质、贴图、动画的字段顺序与标准不同。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="azurpromiliacbt2 azur promilia cbt2 蓝色星原：旅谣 unitycn lanse xingyuan lvyao">
+              <td><code>Azur<wbr>Promilia<wbr>CBT2</code></td>
+              <td>蓝色星原：旅谣</td>
+              <td>Azur Promilia CBT2</td>
+              <td>UnityCN</td>
+              <td>UnityCN 系，密钥在代码里固定，多包结构。</td>
+            </tr>
+            <tr data-family="vendor" data-search="afkjourney afk journey 剑与远征：启程 厂商自有加密 vendor 厂商 整文件 jian yu yuanzheng qicheng">
+              <td><code>AFKJourney</code></td>
+              <td>剑与远征：启程</td>
+              <td>AFK Journey</td>
+              <td>厂商加密</td>
+              <td>.lpak 里塞多个 UnityFS，还要处理散落的 .jsone / .dxt。</td>
+            </tr>
+            <tr data-family="plain" data-search="normal unity 原生 游戏 明文 mingwen">
+              <td><code>Normal</code></td>
+              <td>原生 Unity 游戏</td>
+              <td>Unity</td>
+              <td>明文 Unity</td>
+              <td>没加壳的标准 Unity 包，先用它试水。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="unitycn unity cn 通用条目（隐藏）">
+              <td><code>Unity<wbr>CN</code></td>
+              <td>UnityCN 通用条目（隐藏）</td>
+              <td>隐藏条目</td>
+              <td>UnityCN</td>
+              <td>GUI 的下拉里看不到它，只能用命令行 --game UnityCN 指定，作为没有专门条目的 UnityCN 游戏的兜底。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="unitycncustomkey unitycn custom key 自填密钥的">
+              <td><code>Unity<wbr>CNCustom<wbr>Key</code></td>
+              <td>自填密钥的 UnityCN</td>
+              <td>UnityCN Custom Key</td>
+              <td>UnityCN</td>
+              <td>密钥自填，适合内置表里没有的 UnityCN 游戏。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="pgr_glb_kr punishing gray raven - global/korea 战双帕弥什 国际/韩服 unitycn zhanshuang pamishi">
+              <td><code>PGR_<wbr>GLB_<wbr>KR</code></td>
+              <td>战双帕弥什 国际/韩服</td>
+              <td>Punishing Gray Raven - Global/Korea</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="pgr_cn_jp_tw punishing gray raven - china/japan/taiwan 战双帕弥什 国服/日服/台服 unitycn zhanshuang pamishi">
+              <td><code>PGR_<wbr>CN_<wbr>JP_<wbr>TW</code></td>
+              <td>战双帕弥什 国服/日服/台服</td>
+              <td>Punishing Gray Raven - China/Japan/Taiwan</td>
+              <td>UnityCN</td>
+              <td>UnityCN，内置钥匙，与上一条不同。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="pgr_cn_jp_tw_old punishing gray raven - china/japan/taiwan old key 战双帕弥什 国服/日服/台服 旧钥匙 unitycn zhanshuang pamishi">
+              <td><code>PGR_<wbr>CN_<wbr>JP_<wbr>TW_<wbr>OLD</code></td>
+              <td>战双帕弥什 国服/日服/台服 旧钥匙</td>
+              <td>旧钥匙</td>
+              <td>UnityCN</td>
+              <td>老版本专用钥匙。它不在枚举里，条目名会被当成通用 UnityCN 处理，只在 CNKeys.json 里存在。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="archeland_kalpaofuniverse archeland/kalpa of universe archeland unitycn">
+              <td><code>Archeland_<wbr>Kalpa<wbr>Of<wbr>Universe</code></td>
+              <td>Archeland</td>
+              <td>Archeland/Kalpa of Universe</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="archeland_1114 archeland 1.1.14 unitycn">
+              <td><code>Archeland_<wbr>1114</code></td>
+              <td>Archeland 1.1.14</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>老版本专用钥匙。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="neuralcloud neural cloud 少女前线：云图计划 unitycn shaonyu qianxian yuntu jihua">
+              <td><code>Neural<wbr>Cloud</code></td>
+              <td>少女前线：云图计划</td>
+              <td>Neural Cloud</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="neuralcloudcn neural cloud cn unitycn shaonyu qianxian yuntu jihua">
+              <td><code>Neural<wbr>Cloud<wbr>CN</code></td>
+              <td>Neural Cloud CN</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>国服钥匙与海外服不同。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="higaneruthyll higan: eruthyll 代号：鸢 unitycn higan daihao yuan">
+              <td><code>Higan<wbr>Eruthyll</code></td>
+              <td>代号：鸢</td>
+              <td>Higan: Eruthyll</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="whitecord white chord unitycn">
+              <td><code>White<wbr>Cord</code></td>
+              <td>White Chord</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="mecharashi 钢岚 unitycn ganglan">
+              <td><code>Mecharashi</code></td>
+              <td>钢岚</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="castlevaniamoonnightfantasy castlevania: moon night fantasy 恶魔城：月夜幻想 unitycn castlevania emo cheng">
+              <td><code>Castlevania<wbr>Moon<wbr>Night<wbr>Fantasy</code></td>
+              <td>恶魔城：月夜幻想</td>
+              <td>Castlevania: Moon Night Fantasy</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="hysxzy huā yì shān xīn zhī yuè unitycn hua yi shan xin zhi yue">
+              <td><code>HYSXZY</code></td>
+              <td>Huā Yì Shān Xīn Zhī Yuè</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="doulacontinent doula continent 斗罗大陆 unitycn dalu">
+              <td><code>Doula<wbr>Continent</code></td>
+              <td>斗罗大陆</td>
+              <td>Doula Continent</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="blessglobal bless global unitycn">
+              <td><code>Bless<wbr>Global</code></td>
+              <td>Bless Global</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="starside unitycn">
+              <td><code>Starside</code></td>
+              <td>Starside</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="resonancesoltice resonance soltice unitycn">
+              <td><code>Resonance<wbr>Soltice</code></td>
+              <td>Resonance Soltice</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="oblivionoverride oblivion override 湮灭线 unitycn yanmie xian">
+              <td><code>Oblivion<wbr>Override</code></td>
+              <td>湮灭线</td>
+              <td>Oblivion Override</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="dawnlands dawnland unitycn">
+              <td><code>Dawnlands</code></td>
+              <td>Dawnland</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="bb unitycn">
+              <td><code>BB</code></td>
+              <td>BB</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="dynastylegends2 dynasty legends 2 三国群英传2 unitycn sanguo qunying zhuan">
+              <td><code>Dynasty<wbr>Legends2</code></td>
+              <td>三国群英传2</td>
+              <td>Dynasty Legends 2</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="evernightcn evernight cn unitycn">
+              <td><code>Evernight<wbr>CN</code></td>
+              <td>Evernight CN</td>
+              <td>默认</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="xintianlongbabu xintianlong babu 新天龙八部 unitycn">
+              <td><code>Xintianlong<wbr>Babu</code></td>
+              <td>新天龙八部</td>
+              <td>Xintianlong Babu</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="frostpunkbeyondtheice frostpunk: beyond the ice 冰汽时代：冰封之上 unitycn frostpunk bingqi shidai">
+              <td><code>Frostpunk<wbr>Beyond<wbr>The<wbr>Ice</code></td>
+              <td>冰汽时代：冰封之上</td>
+              <td>Frostpunk: Beyond the Ice</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+            <tr data-family="unitycn" data-search="catfantasy cat fantasy 猫咪幻想 unitycn maomi huanxiang">
+              <td><code>Cat<wbr>Fantasy</code></td>
+              <td>猫咪幻想</td>
+              <td>Cat Fantasy</td>
+              <td>UnityCN</td>
+              <td>UnityCN 机制，钥匙已内置在 CNKeys.json。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>表到此为止：这一版能认的游戏就是这些，没有偷偷留着的。</p>
+
+      <h2 id="limits">它不是万能钥匙</h2>
+      <p>这份表是当前源码的快照，不是永久承诺。游戏一更新，包头、常量、压缩方式都可能变；昨天能开的包，今天可能就解不出来。</p>
+      <p>能跑通哪些版本，以表里的条目为准。表里没列的版本，不代表永远不支持，只代表这一版工具还没有对应写法。遇到新版本，先看条目有没有更新，再谈换工具。</p>
+      <p>自己往 <code>CNKeys.json</code> 加钥匙时也要注意：工具只检查长度是不是 16 字节，不检查钥匙对不对。填错不会在保存时报警，会在解包时失败，或者给你一堆垃圾字节。</p>
+      <div class="callout callout-warn">
+        <h3>本手册不提供密钥</h3>
+        <p>这里只讲机制，不提供任何密钥、十六进制串或可复现的解密配方。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+      </div>
+
+      <h2 id="sources">依据</h2>
+      <p>这一页的机制描述来自以下位置，具体行号以仓库当前版本为准。</p>
+      <ul>
+        <li>三层模型与厂商对照：<code>research/01-core-pipeline.md:230-252</code></li>
+        <li>游戏注册表与 record 继承链：<code>AnimeStudio/GameManager.cs:21-93</code>、<code>:114-189</code></li>
+        <li>游戏类型谓词：<code>AnimeStudio/GameManager.cs:278-359</code></li>
+        <li>UnityCN 密钥库与 <code>CNKeys.json</code>：<code>AnimeStudio/UnityCNManager.cs:11-37</code>、<code>:39</code>、<code>:64-92</code></li>
+        <li>整文件预处理与多包检测：<code>AnimeStudio/FileReader.cs:183-269</code></li>
+        <li>整文件解密分支：<code>AnimeStudio/ImportHelper.cs:97</code>、<code>:228</code>、<code>:277</code>、<code>:330</code>、<code>:440</code>、<code>:557</code>、<code>:624</code>、<code>:757</code>、<code>:797</code>、<code>:835</code>、<code>:868</code>、<code>:897</code>、<code>:949</code>、<code>:1014</code>、<code>:1034</code>、<code>:1061</code>、<code>:1100</code></li>
+        <li>容器头与数据块解密：<code>AnimeStudio/BundleFile.cs:376</code>、<code>:422</code>、<code>:458</code>、<code>:590</code>、<code>:603</code>、<code>:711-732</code></li>
+        <li>各家族的块级实现：<code>AnimeStudio/Crypto/UnityCN.cs:17-49</code>、<code>Mr0kUtils.cs:12-71</code>、<code>BlbUtils.cs:16-123</code>、<code>NetEaseUtils.cs:12-210</code>、<code>FairGuardUtils.cs:9-37</code>、<code>VFSUtils.cs:13-120</code></li>
+        <li>本页表格数据：<code>docs/data/games.js:15-176</code></li>
+      </ul>
+    </div>
+
+    <nav class="pager" aria-label="继续阅读">
+      <a href="faq.html"><span>下一页</span><b>疑难解答</b></a>
+      <a href="pipeline.html"><span>或者</span><b>它怎么工作</b></a>
+    </nav>
+  </main>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p class="foot-word">AnimeStudio</p>
+    <div class="foot-cols">
+      <div>
+        <h3>手册</h3>
+        <a href="start.html">五分钟上手</a>
+        <a href="gui.html">界面导览</a>
+        <a href="batch.html">批量与资产地图</a>
+        <a href="pipeline.html">它怎么工作</a>
+      </div>
+      <div>
+        <h3>继续</h3>
+        <a href="games.html">游戏与它们的锁</a>
+        <a href="faq.html">疑难解答</a>
+        <a href="dev.html">想改代码</a>
+      </div>
+      <div>
+        <h3>源码与下载</h3>
+        <a href="https://github.com/Escartem/AnimeStudio">GitHub 仓库</a>
+        <a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 构建</a>
+        <a href="https://github.com/Escartem/AnimeStudio/wiki">官方 wiki</a>
+      </div>
+    </div>
+    <p class="foot-note">本手册依据仓库当前源码整理，行为以代码为准。AnimeStudio 是 Studio 与 AssetStudio 的衍生项目，作者 Escartem。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+  </div>
+</footer>
+
+<script src="data/games.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

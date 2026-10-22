@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>批量与资产地图 · AnimeStudio 说明书</title>
+<meta name="description" content="AnimeStudio 命令行批处理：17 个参数的真实默认值、三个必踩的坑、按文件流式处理的代价，以及资产地图与 Asset Browser 的用法和局限。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-theme="paper" data-page="batch">
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <a class="mark" href="index.html">
+    <span class="mark-plate">AS</span>
+    <span>AnimeStudio<span class="mark-sub"> 说明书</span></span>
+  </a>
+  <button class="navtoggle" data-navtoggle aria-expanded="false">目录</button>
+  <nav class="topnav" data-topnav aria-label="主导航">
+    <a href="start.html">上手</a>
+    <a href="gui.html">界面</a>
+    <a href="pipeline.html">原理</a>
+    <a href="games.html">游戏</a>
+    <a href="faq.html">排错</a>
+    <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+  </nav>
+</header>
+
+<div class="wrap shell">
+  <aside class="sidenav" aria-label="手册目录">
+    <div class="sidenav-group">
+      <p class="sidenav-title">开始</p>
+      <a href="index.html">封面</a>
+      <a href="start.html">五分钟上手</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">用</p>
+      <a href="gui.html">界面导览</a>
+      <a href="batch.html" aria-current="page">批量与资产地图</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">懂</p>
+      <a href="pipeline.html">它怎么工作</a>
+      <a href="games.html">游戏与它们的锁</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">其它</p>
+      <a href="faq.html">疑难解答</a>
+      <a href="dev.html">想改代码</a>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="pagehead">
+      <h1>批量与资产地图</h1>
+      <p class="lead">一次要导几百个包、要写进脚本、要反复导出同一批东西——这三件事交给命令行和资产地图。这一页把它们讲清，也讲清哪几处会悄悄出错。</p>
+      <div class="pagehead-extra">
+        <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+        <a class="btn btn-quiet" href="gui.html">先用界面</a>
+      </div>
+    </header>
+
+    <div class="prose">
+
+      <div class="toc">
+        <p>本页内容</p>
+        <a href="#when">什么时候该用命令行</a>
+        <a href="#examples">三条能直接复制的命令</a>
+        <a href="#flags">17 个参数的默认值</a>
+        <a href="#pits">三个必须知道的坑</a>
+        <a href="#stream">一个文件一个文件地干</a>
+        <a href="#asset-map">资产地图：先建索引再回捞</a>
+        <a href="#asset-browser">Asset Browser 能干什么</a>
+        <a href="#map-limits">对比版本的真实局限</a>
+        <a href="#gui-vs-cli">界面和命令行不一样</a>
+      </div>
+
+      <h2 id="when">什么时候该用命令行</h2>
+      <p>同一个下载里有两个 exe：<code>AnimeStudio.GUI.exe</code> 是界面，<code>AnimeStudio.CLI.exe</code> 是命令行。两者能力基本一样，批量本身两边都能做——界面里也能一次导出全部，只是每一批都得你亲手点一次，中途关了窗口就白跑。区别只在「下一步由谁决定」：界面你点，命令行由参数决定。值得换过去的有三种情况：</p>
+      <ul>
+        <li><strong>一次要导几百上千个文件，而且还要反复来</strong>。界面每批点一次，命令行写成一行就行。</li>
+        <li><strong>要放进脚本或定时任务</strong>。没人盯着也能跑完。</li>
+        <li><strong>同一批包换着花样导</strong>。复制一行，改几个字。</li>
+      </ul>
+      <p>这三种之外先用界面：看清列表、预览贴图、确认游戏选对，命令行都不给你。它也没有「列出内容」的选项，只想清点数量可以用 <code>--map_op AssetMap --map_type None</code>，扫一遍只数不写文件。</p>
+
+      <h2 id="examples">三条能直接复制的命令</h2>
+      <p>三条都只用两个位置参数（输入在前、输出在后）加几个 flag。在解压出来的目录里打开终端，把路径换成你自己的就能跑。</p>
+      <pre><code>AnimeStudio.CLI.exe "D:\Games\SR\StreamingAssets" "D:\Out\sr-textures" --game SR --types Texture2D Sprite</code></pre>
+      <p>输入可以是文件或目录，给目录会连子目录一起扫；输出目录自动创建。<code>--game SR</code> 必填，决定用哪套解密规则。<code>--types Texture2D Sprite</code> 只要贴图和精灵。另外两个默认值刚好合用：<code>--export_type Convert</code> 转成 PNG 这类可读格式，<code>--group_assets ByType</code> 按类型分目录。</p>
+
+      <pre><code>AnimeStudio.CLI.exe "D:\Games\ZZZ" "D:\Maps\zzz" --game ZZZ --map_op AssetMap --map_type MessagePack --map_name zzz-assets</code></pre>
+      <p>这条不导资产，只建索引：扫完目录，在 <code>D:\Maps\zzz\zzz-assets.map</code> 里写下每个资产的名字、容器、来源包、PathID、类型、Hash 和偏移。慢，但只需要扫这一次。</p>
+
+      <pre><code>AnimeStudio.CLI.exe "D:\Games\ZZZ" "D:\Out\zzz-ui" --game ZZZ --map_op AssetMap,Load --map_type MessagePack --map_name "D:\Maps\zzz\zzz-assets.map" --names "ui_.*" --types Sprite</code></pre>
+      <p>这条读上一条的索引，只加载名字匹配 <code>ui_.*</code> 的精灵所在的包，再导出。<code>AssetMap,Load</code> 就是「用现成的 map」，所以 <code>--map_name</code> 要给带 <code>.map</code> 的完整路径。</p>
+
+      <h2 id="flags">17 个参数的默认值</h2>
+      <p>15 个 flag 加两个位置参数，默认值全在 <code>Components/CommandLine.cs</code> 里。</p>
+
+      <div class="table-wrap">
+        <table>
+          <caption>必填的三项</caption>
+          <thead>
+            <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>input_path</code></td><td>必填</td><td>第一个位置参数，文件或目录。</td></tr>
+            <tr><td><code>output_path</code></td><td>必填</td><td>第二个位置参数，输出目录，会自动创建。</td></tr>
+            <tr><td><code>--game</code></td><td>必填</td><td><code>GameType</code> 枚举名，如 <code>SR</code>、<code>GI</code>、<code>ZZZ</code>。大小写敏感。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>过滤用的三项</caption>
+          <thead>
+            <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--types</code></td><td>空（等于不过滤）</td><td>Unity 类名，空格分隔，可写 <code>类型:标志</code>。</td></tr>
+            <tr><td><code>--names</code></td><td>空</td><td>资产名正则。</td></tr>
+            <tr><td><code>--containers</code></td><td>空</td><td>容器路径正则。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>输出相关的两项</caption>
+          <thead>
+            <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--export_type</code></td><td><code>Convert</code></td><td><code>Convert</code> / <code>Raw</code> / <code>Dump</code> / <code>JSON</code>。</td></tr>
+            <tr><td><code>--group_assets</code></td><td><code>ByType</code></td><td><code>ByType</code> / <code>ByContainer</code> / <code>BySource</code> / <code>None</code>。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>地图相关的三项</caption>
+          <thead>
+            <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--map_op</code></td><td><code>None</code></td><td><code>CABMap</code> / <code>AssetMap</code> / <code>Both</code> / <code>Load</code>，可逗号组合。</td></tr>
+            <tr><td><code>--map_type</code></td><td><code>XML</code></td><td><code>MessagePack</code> / <code>XML</code> / <code>JSON</code> / <code>None</code>。</td></tr>
+            <tr><td><code>--map_name</code></td><td><code>assets_map</code></td><td>地图文件名。Load 模式要给完整路径。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>其余六项</caption>
+          <thead>
+            <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--silent</code></td><td>关</td><td>只静音核心库的日志，控制台输出照旧。</td></tr>
+            <tr><td><code>--logger_flags</code></td><td><code>Debug Info Warning Error</code></td><td>不含 <code>Verbose</code>，要看解包细节得自己加。</td></tr>
+            <tr><td><code>--unity_version</code></td><td>空</td><td>留空就自己从文件里读。</td></tr>
+            <tr><td><code>--key</code></td><td>0</td><td>MiHoYoBinData 的 XOR 密钥，0 表示不启用。可写十六进制。</td></tr>
+            <tr><td><code>--ai_file</code></td><td>空</td><td>资产索引 JSON，只对原神系游戏生效。</td></tr>
+            <tr><td><code>--dummy_dlls</code></td><td>空</td><td>DummyDll 目录，给脚本类资产反序列化用。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <h3>过滤器可以写在文件里</h3>
+        <p><code>--names</code> 和 <code>--containers</code> 允许只给一个文件名：程序逐行读它，每行当一条正则。手写一份清单存成 txt 传进去，比在命令行里堆一长串正则干净。空行跳过，写错的正则静默忽略。</p>
+      </div>
+
+      <h2 id="pits">三个必须知道的坑</h2>
+
+      <ol class="steps">
+        <li>
+          <h3><code>--types</code> 用空格，不用逗号</h3>
+          <p>仓库 README 里那条示例写的是 <code>--types Texture2D,Sprite</code>，这是错的。逗号让整串变成一个词，程序拿它去匹配类型名，失败后只打一行 <code>has invalid format, skipping...</code> 就跳过——不报错、不退出。</p>
+          <p>等所有类型都被跳过，过滤器就空了，结果是把整个包全导出来：你想只要贴图，得到的是一整个目录。</p>
+        </li>
+        <li>
+          <h3><code>--game</code> 不给就是报错</h3>
+          <p>它必填，还挂着校验器比对候选名单：不给，拿到的是错误信息加用法说明；给错，是 <code>Invalid game. Supported games: ...</code> 加一长串名单。README 说「不带参数运行会列出完整参数」，实际你看到的是缺必填项的报错。</p>
+          <p>名单里是枚举名（<code>GI</code>、<code>SR</code>、<code>ZZZ</code>），不是界面下拉里的「Live」「CBT 2」——那是另一个字段。界面选「Live」，命令行要写 <code>--game SR</code>。</p>
+        </li>
+        <li>
+          <h3>退出码永远是 0</h3>
+          <p>程序入口把命令行组件的返回值丢掉，执行函数没有返回值，还把异常全吞进 <code>catch</code> 里打印。所以失败时进程照样以 0 退出：<code>%ERRORLEVEL%</code>、<code>$LASTEXITCODE</code>、CI 的红灯都指望不上。</p>
+          <p>判成败只能看产物：目录里有没有新文件、日志里有没有 <code>Error</code>、文件数量和预期对不对得上。</p>
+        </li>
+      </ol>
+
+      <h2 id="stream">一个文件一个文件地干</h2>
+      <p>扫完目录，它先按路径字符串长度从小到大排一遍——不是按文件大小——再逐个文件走三步：加载、建资产表、导出，然后清空处理下一个。</p>
+      <p>所以内存峰值只跟「最大的那一个文件」有关。界面版反过来：一次把所有文件读进内存、建一棵全局树再导出，内存跟整个目录成正比。经验上差一个数量级——几百 MB 的目录，界面版峰值按 GB 算，命令行通常几十到几百 MB。界面一打开就吃满内存的目录，命令行往往能跑完。</p>
+      <p>代价是没有进度条，也没法先看结果再决定。</p>
+
+      <h2 id="asset-map">资产地图：先建索引再回捞</h2>
+      <p>比喻是图书馆的索引卡：不建索引，每次找书都要翻整个书库；建了索引，卡片告诉你去哪个书架哪一排。</p>
+      <p>每次导出都要解包、读对象头、算资产名，整包扫一遍几分钟到几十分钟。建 map 就是把这趟活儿一次做完，之后只读卡片。值得建的三种情况：</p>
+      <ul>
+        <li><strong>整包扫描</strong>。先把整个安装目录索引成一张表，再决定要哪一些。</li>
+        <li><strong>反复导出</strong>。今天要贴图、明天要动作，建一次能用很多次。</li>
+        <li><strong>版本对比</strong>。两份 map 一比，就知道这次更新加了什么、删了什么。</li>
+      </ul>
+      <p><code>.map</code>（MessagePack）每条存七样：名字、容器、来源包、PathID、类型、Hash、偏移。<code>.xml</code> 只存前五样，没有 Hash 也没有偏移——要比版本差异、要用偏移回捞，就得用 <code>.map</code> 或 <code>.json</code>。</p>
+      <p>CAB map 是另一份东西，落在工作目录的 <code>Maps\&lt;名字&gt;.bin</code>，不是输出目录。它按 CAB 名记两件事：这个 CAB 在哪个包的哪个字节偏移、依赖哪些别的 CAB。有了偏移，加载时只从需要的位置解开，不必整包读完，所以超大包先建 CAB map 再导提升明显。</p>
+      <p>顺带一个反直觉的地方：<code>Load</code> 位在这两个分支里含义相反——<code>AssetMap,Load</code> 是读图，<code>CABMap,Load</code> 是建图；单独写 <code>--map_op CABMap</code> 才是去读 <code>Maps\</code> 下的旧图。</p>
+
+      <h2 id="asset-browser">Asset Browser 能干什么</h2>
+      <p>Asset Browser 是专门读 map 的工具（菜单的 Load AssetMap），只认 <code>.map</code> 和 <code>.json</code>，不认 <code>.xml</code>。</p>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-bar"><b>Load AssetMap</b><span>Clear</span><span>Load Selected</span><span>Export Selected</span><span>Relocate source</span><span>Search</span><span>Select Types</span><span>Load second map</span></div>
+          <div class="ui-body">
+            <div class="ui-cols"><span>Name</span><span>Container</span><span>Source</span><span>PathID</span><span>Type</span><span>Hash</span></div>
+            <div class="ui-rowline"><span>Icon_Avatar</span><span>ui/icon</span><span>ui_assets</span><span>128</span><span>Texture2D</span><span>a41f…</span></div>
+            <div class="ui-rowline is-selected"><span>Icon_Item</span><span>ui/icon</span><span>ui_assets</span><span>129</span><span>Sprite</span><span>7b02…</span></div>
+            <div class="ui-rowline"><span>BGM_Main</span><span>audio</span><span>audio_assets</span><span>204</span><span>AudioClip</span><span>c9ee…</span></div>
+            <div class="ui-foot"><span>3 项</span><span>已选 1 项</span></div>
+          </div>
+          <div class="ui-select"><b>Assets Only in First Map</b><span>对比视角</span></div>
+        </div>
+        <figcaption>按真实控件重画。工具栏那一排就是全部动作，每个属性列上方各有一格正则过滤器，最下面的下拉是两张 map 的对比视角。</figcaption>
+      </figure>
+
+      <p>它能做的五件事：</p>
+      <ul>
+        <li><strong>按属性过滤</strong>。名字、容器、来源、PathID、类型、Hash 各一格，填的是正则，回车就筛。</li>
+        <li><strong>按类型多选</strong>。Select Types，一次勾好几种类型。</li>
+        <li><strong>直接回捞</strong>。Load Selected 只加载选中的，Export Selected 只导出选中的。</li>
+        <li><strong>relocate</strong>。把 map 里记的源路径整体平移到另一次安装目录。</li>
+        <li><strong>两张 map 对比</strong>。Load second map 之后，在三种视角里选一种。</li>
+      </ul>
+
+      <div class="table-wrap">
+        <table>
+          <caption>对比的三个视角，对应下拉里的三项</caption>
+          <thead>
+            <tr><th>下拉项</th><th>你看到的是</th><th>实际含义</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Assets Only in First Map</td><td>第一张有、第二张没有</td><td>新版删掉的</td></tr>
+            <tr><td>Assets Only in Second Map</td><td>第二张有、第一张没有</td><td>新版新增的</td></tr>
+            <tr><td>Assets with Differences</td><td>两边都有但 Hash 不同</td><td>内容改过的</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>relocate 只比文件名、不比子目录，不同目录里的同名包会串；跑完会告诉你多少个没搬过去。</p>
+
+      <h2 id="map-limits">对比版本的真实局限</h2>
+
+      <div class="callout callout-warn">
+        <h3>超过 16 MB 的对象没有真 Hash</h3>
+        <p>建图时，大于等于 16 MiB 的条目会把 Hash 写成 <code>size:1a2b3c</code> 这样的字符串（十六进制字节数），而不是内容哈希——上百 MB 的着色器和网格只为索引身份算一遍不划算。后果很实在：同一个大对象在两版之间只要大小没变，就永远显示「没改过」，只能靠大小、偏移或手动核对。</p>
+      </div>
+
+      <p>另一个边界是「同一个资产」怎么认：用名字、容器、PathID 三元组。重新导入让 PathID 变了，就会被算成「删一条加一条」，而不是「改过」。</p>
+
+      <h2 id="gui-vs-cli">界面和命令行不一样</h2>
+
+      <div class="callout callout-warn">
+        <h3>同一个包，两边产物不是逐文件对得上的</h3>
+        <p>已知的十几处差异里有这三条：同名文件去重，界面从 <code>(1)</code> 开始编号，命令行从 <code>(0)</code> 开始；<code>ByContainer</code> 遇到空容器，界面回退到输出根目录，命令行回退到类型子目录；动作导出的 FBX，命令行那条路径不拼 <code>.fbx</code> 后缀，产物没有扩展名。</p>
+        <p>要做长期流水线就固定用一边，别混着比。</p>
+      </div>
+
+    </div>
+
+    <nav class="pager" aria-label="继续阅读">
+      <a href="games.html"><span>下一页</span><b>游戏与它们的锁</b></a>
+      <a href="faq.html"><span>或者</span><b>疑难解答</b></a>
+    </nav>
+  </main>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p class="foot-word">AnimeStudio</p>
+    <div class="foot-cols">
+      <div>
+        <h3>手册</h3>
+        <a href="start.html">五分钟上手</a>
+        <a href="gui.html">界面导览</a>
+        <a href="batch.html">批量与资产地图</a>
+        <a href="pipeline.html">它怎么工作</a>
+      </div>
+      <div>
+        <h3>继续</h3>
+        <a href="games.html">游戏与它们的锁</a>
+        <a href="faq.html">疑难解答</a>
+        <a href="dev.html">想改代码</a>
+      </div>
+      <div>
+        <h3>源码与下载</h3>
+        <a href="https://github.com/Escartem/AnimeStudio">GitHub 仓库</a>
+        <a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 构建</a>
+        <a href="https://github.com/Escartem/AnimeStudio/wiki">官方 wiki</a>
+      </div>
+    </div>
+    <p class="foot-note">本手册依据仓库当前源码整理，行为以代码为准。AnimeStudio 是 Studio 与 AssetStudio 的衍生项目，作者 Escartem。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

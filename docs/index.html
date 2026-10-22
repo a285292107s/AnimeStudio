@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnimeStudio 说明书 · 游戏里的资源，拆开就能用</title>
+<meta name="description" content="AnimeStudio 的中文说明书：它读取 Unity 游戏打好的资源包，把贴图、模型、动作、音频、着色器和文本列成清单，先预览再导出。写给第一次用的人。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-page="index">
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <a class="mark" href="index.html">
+    <span class="mark-plate">AS</span>
+    <span>AnimeStudio<span class="mark-sub"> 说明书</span></span>
+  </a>
+  <button class="navtoggle" data-navtoggle aria-expanded="false">目录</button>
+  <nav class="topnav" data-topnav aria-label="主导航">
+    <a href="start.html">上手</a>
+    <a href="gui.html">界面</a>
+    <a href="pipeline.html">原理</a>
+    <a href="games.html">游戏</a>
+    <a href="faq.html">排错</a>
+    <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+  </nav>
+</header>
+
+<main id="main">
+
+  <section class="wrap hero">
+    <div class="hero-copy">
+      <h1>游戏里的资源，<br>拆开就能用。</h1>
+      <p class="hero-sub">AnimeStudio 读 Unity 游戏打好的资源包，把里面的贴图、模型、动作、音频、着色器和文本列成一张清单：先预览，再导出成 PNG、FBX、WAV 这类能直接打开的文件。</p>
+      <div class="hero-actions">
+        <a class="btn" href="start.html">五分钟上手</a>
+        <a class="btn btn-quiet" href="pipeline.html">先看它怎么工作</a>
+      </div>
+      <p class="hero-meta">
+        <span>Windows x64</span>
+        <span>需要 .NET 桌面运行时</span>
+        <span>图形界面与命令行同一个压缩包</span>
+      </p>
+    </div>
+    <div class="hero-plate">
+      <figure>
+        <img src="assets/face-04.jpg" alt="项目横幅插画中的角色局部：星空背景前的白发角色" width="470" height="560">
+      </figure>
+      <figcaption>仓库横幅插画的局部。它想帮你拿到手的，就是这类东西。</figcaption>
+    </div>
+  </section>
+
+  <section class="wrap statement reveal">
+    <p>游戏把东西<span class="inline-plate"><img src="assets/face-01.jpg" alt="横幅插画里的角色局部" width="400" height="560"></span>压进一个个包里，还上了锁<span class="inline-plate"><img src="assets/face-02.jpg" alt="横幅插画里的角色局部" width="360" height="560"></span>。这个工具认得这些包。</p>
+    <p class="note">它先把锁打开，再把里面的东西按类型列成清单——贴图、模型、动作、音频、着色器、文本各占一行。你从清单里挑，它把挑中的换成能直接打开的文件。</p>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="band-head reveal">
+        <h2>从双击一个包，到一张 PNG</h2>
+        <p>中间只有四步。每一步都可能失败，每一步也都有对应的开关。把鼠标停在任意一段上，它会展开。</p>
+      </div>
+      <div class="pipe reveal">
+        <div class="pipe-seg">
+          <span class="pipe-step">读开头二十个字节</span>
+          <span class="pipe-name">认</span>
+          <span class="pipe-cost">是 UnityFS、是 .assets，还是某个厂商自己的壳</span>
+        </div>
+        <div class="pipe-seg">
+          <span class="pipe-step">一个文件拆成几十段</span>
+          <span class="pipe-name">拆</span>
+          <span class="pipe-cost">LZ4、LZMA、Oodle 三种压缩，一段一段解开</span>
+        </div>
+        <div class="pipe-seg">
+          <span class="pipe-step">清单变成对象</span>
+          <span class="pipe-name">读</span>
+          <span class="pipe-cost">每个东西的类型、偏移、大小，包里都写着</span>
+        </div>
+        <div class="pipe-seg">
+          <span class="pipe-step">挑中的写盘</span>
+          <span class="pipe-name">取</span>
+          <span class="pipe-cost">预览和导出用的是同一批对象，导出只多一步编码</span>
+        </div>
+      </div>
+      <p class="pipe-legend"><a href="pipeline.html">它怎么工作</a>把中间这两步拆成七层来讲；<a href="games.html">游戏与它们的锁</a>讲的是第一步为什么必须先选游戏。</p>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="band-head reveal">
+        <h2>拆出来是什么</h2>
+        <p>类型不同，落地的文件也不同。下面这几样，工具箱里都已经接好了。</p>
+      </div>
+      <div class="tiles">
+        <div class="tile tile-6n tile-head reveal">
+          <h3>七种东西，七种落地文件</h3>
+          <p>图片、模型、声音、数据、着色器、字体、动作——先看清单，再决定拿哪些。</p>
+        </div>
+        <div class="tile tile-6n reveal">
+          <h3>贴图与精灵</h3>
+          <p>Texture2D 与 Sprite 转成 PNG、JPG、BMP、TGA；HDR 光照图只能在图形界面里导。</p>
+        </div>
+        <div class="tile tile-3 reveal">
+          <h3>模型</h3>
+          <p>网格导出 OBJ，一个文件装完顶点与面；角色和骨骼导出 FBX，带蒙皮、带动作。</p>
+        </div>
+        <div class="tile tile-3 reveal">
+          <h3>声音</h3>
+          <p>AudioClip 能转成 WAV，也能保留原本的压缩格式，导出前可以先试听。</p>
+        </div>
+        <div class="tile tile-6 reveal">
+          <h3>文本与数据</h3>
+          <p>TextAsset 直接给你 .txt；MonoBehaviour 里那些看不懂的二进制，按包里的类型树还原成 JSON，键名都在。</p>
+        </div>
+        <div class="tile tile-3s reveal">
+          <h3>着色器</h3>
+          <p>反编译回可读的代码，而不是一堆字节。</p>
+        </div>
+        <div class="tile tile-3s reveal">
+          <h3>字体</h3>
+          <p>TTF 与 OTF 原样还原，能装进系统。</p>
+        </div>
+        <div class="tile tile-6n reveal">
+          <h3>动作与清单</h3>
+          <p>AnimationClip 落成 .anim 文本；整次扫描还能写成一张表，下次直接查，不用重扫。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band band-paper">
+    <div class="wrap">
+      <div class="band-head reveal">
+        <h2>同一个内核，两个入口</h2>
+      </div>
+      <div class="split">
+        <div class="split-plate reveal">
+          <img src="assets/square-girl.jpg" alt="横幅插画里抱着猫的角色" width="620" height="620" loading="lazy">
+        </div>
+        <div class="split-copy reveal">
+          <h3>图形界面适合翻，命令行适合批量</h3>
+          <p>界面里一页页点开看，适合「我只想要这张立绘」；命令行一条命令跑完几百个包，适合「我要这个游戏的所有贴图」。两边用的是同一套解析代码，所以两边的毛病也一样。</p>
+          <figure class="plate">
+            <div class="ui" data-ui>
+              <div class="ui-bar"><b>File</b><span>Options</span><span>Export</span><span>Filter Type</span><span>Maps</span><span>About</span></div>
+              <div class="ui-tabs">
+                <span class="ui-tab" aria-selected="false">Scene Hierarchy</span>
+                <span class="ui-tab" aria-selected="true">Asset List</span>
+                <span class="ui-tab" aria-selected="false">Asset Classes</span>
+              </div>
+              <div class="ui-body">
+                <div class="ui-cols"><span>Name</span><span>Container</span><span>Type</span><span>PathID</span><span>Size</span><span>Hash</span></div>
+                <div class="ui-rowline"><span>Icon_Avatar_01</span><span>ui/icon</span><span>Texture2D</span><span>128</span><span>512</span><span>3f9a1c7b22e04d18</span></div>
+                <div class="ui-rowline is-selected"><span>Icon_Item_Sword</span><span>ui/icon</span><span>Sprite</span><span>129</span><span>256</span><span>7b024e6a91cc35f2</span></div>
+                <div class="ui-rowline"><span>BGM_Town_Day</span><span>audio/bgm</span><span>AudioClip</span><span>204</span><span>2.1M</span><span>c9ee8b1d04a7f65e</span></div>
+                <div class="ui-rowline"><span>Chr_0001_Body</span><span>char</span><span>Mesh</span><span>311</span><span>1.4M</span><span>d21f7c08b55a930e</span></div>
+                <div class="ui-foot"><span>4 项</span><span>已选 1 项</span></div>
+              </div>
+            </div>
+            <figcaption>资产列表按真实控件重画：六列、按类型着色、选中一行右侧就出预览。第六列的名字写 Hash，因为它其实不是 SHA-256。</figcaption>
+          </figure>
+          <div class="split-actions">
+            <a class="btn" href="gui.html">界面导览</a>
+            <a class="btn btn-quiet" href="batch.html">命令行与资产地图</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="band-grid">
+        <div class="band-head reveal">
+          <h2>同一份文件，不同的锁</h2>
+          <p>包长得都一样，锁不一样。这就是为什么加载之前必须先选游戏：先选分组，再选游戏，最后选版本。</p>
+          <div class="ui ui-inline" data-ui>
+            <div class="ui-pick">
+              <span class="ui-select">HoYoverse<span>▾</span></span>
+              <span class="ui-select">Honkai: Star Rail<span>▾</span></span>
+              <span class="ui-select">Live<span>▾</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="band-body reveal">
+          <div class="lineup" data-picker>
+            <button type="button" class="lineup-row" data-key="Normal">
+              <span>普通 Unity 游戏</span><span>没有锁</span><span>Unity</span>
+            </button>
+            <button type="button" class="lineup-row" data-key="GI">
+              <span>原神 · 正式服</span><span>容器头被换过</span><span>GI</span>
+            </button>
+            <button type="button" class="lineup-row" data-key="SR">
+              <span>星穹铁道 · 正式服</span><span>块加密 + Oodle</span><span>SR</span>
+            </button>
+            <button type="button" class="lineup-row" data-key="ZZZ">
+              <span>绝区零 · 正式服</span><span>容器 + 块双层</span><span>ZZZ</span>
+            </button>
+            <button type="button" class="lineup-row" data-key="PGR_GLB_KR">
+              <span>战双帕弥什 · 国际服</span><span>UnityCN 密钥</span><span>PGR_GLB_KR</span>
+            </button>
+            <button type="button" class="lineup-row" data-key="ArknightsEndfield">
+              <span>明日方舟：终末地</span><span>FairGuard + VFS</span><span>ArknightsEndfield</span>
+            </button>
+          </div>
+          <p class="pipe-legend">六行只是样本。完整的 75 条，连同它们分别用哪把锁，在<a href="games.html">游戏与它们的锁</a>。</p>
+        </div>
+      </div>
+      <div class="profile reveal" data-profile>
+        <div>
+          <p class="profile-name">普通 Unity 游戏</p>
+          <h3>你在工具里选</h3>
+          <p>Unity</p>
+          <p class="profile-out">全部类型的资产都能直接预览。</p>
+        </div>
+        <dl>
+          <div><dt>你会拿到的文件</dt><dd>globalgamemanagers、.assets、各种 .bundle</dd></div>
+          <div><dt>它被保护成什么样</dt><dd>没有锁</dd></div>
+          <div><dt>钥匙从哪来</dt><dd>不需要</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="band-grid">
+        <div class="band-head reveal">
+          <h2>它认得多少</h2>
+          <p>这些数字是这一版的真实情况，不是宣传语。</p>
+        </div>
+        <div class="band-body reveal">
+          <div class="facts">
+            <div class="fact"><b>75</b><span>个游戏条目，其中一条只给命令行用</span></div>
+            <div class="fact"><b>4</b><span>种导出方式：转换、原始、字段、JSON</span></div>
+            <div class="fact"><b>17</b><span>个命令行参数，含两个位置参数</span></div>
+            <div class="fact"><b>9</b><span>个随包分发的原生解码库</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="band-grid">
+        <div class="band-head reveal">
+          <h2>先看这四个问题</h2>
+          <p>每个新手都会撞上它们。完整的一份在<a href="faq.html">疑难解答</a>。</p>
+        </div>
+        <div class="band-body reveal">
+          <div class="faq">
+            <details open>
+              <summary>它会改我的游戏文件吗</summary>
+              <div class="faq-body">
+                <p>会，而且是在你没被问过的情况下。如果游戏把一个大包切成几个分片放着，工具为了读它，会把分片合并成一个文件写回原目录。</p>
+                <p>所以第一次用之前，先把要处理的那几个文件复制到别的地方再打开。这是最省事的保险。</p>
+              </div>
+            </details>
+            <details>
+              <summary>为什么必须先选游戏</summary>
+              <div class="faq-body">
+                <p>因为不同游戏把包锁起来的方式不一样。选错的那一个不会友好地报错，常见结果是解出一堆读不懂的字节，看起来「全是乱码」。</p>
+                <p>选游戏是三步下拉：先选发行商分组，再选游戏，最后选版本（正式服 / 测试服）。测试版的写法常常和正式服不同，所以它们各自是一个条目。</p>
+              </div>
+            </details>
+            <details>
+              <summary>导出的模型为什么没有贴图</summary>
+              <div class="faq-body">
+                <p>因为模型和贴图在包里是两个独立的东西。导出模型时，工具只把网格、骨骼、材质名带出来；贴图要你自己在资产列表里按名字找出来另存。</p>
+                <p>界面里的 3D 预览同样不显示贴图——它只画顶点和法线，用来确认形状对不对。</p>
+              </div>
+            </details>
+            <details>
+              <summary>需要联网吗？需要什么系统</summary>
+              <div class="faq-body">
+                <p>解包、预览、导出全在本地完成，不联网。只有第一次装 .NET 运行时要联网。</p>
+                <p>只支持 64 位 Windows。随包的九个解码库都是 64 位二进制，32 位系统上没有替代品。</p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="band-head reveal">
+        <h2>它从哪来</h2>
+        <p>这张图是仓库的封面。下面的几句话，决定你能不能用它做别的事。</p>
+      </div>
+      <figure class="plate reveal">
+        <img src="assets/banner.jpg" alt="AnimeStudio 仓库封面：星空下的四个角色与项目标志" width="1600" height="800" loading="lazy">
+        <figcaption>AnimeStudio 的官方横幅。它是 Studio 的分支，Studio 又是 AssetStudio 的分支。</figcaption>
+      </figure>
+      <div class="band-body reveal">
+        <p>作者把几个分散的修复合到一处，所以你会发现它的代码里同时留着三条血脉的痕迹。解包与解析的核心部分建立在别人的工作上：Oodle 解压来自 powzix 的 ooz，FBX 导出用 Autodesk 的 FBX SDK，动画解压用 Nicholas Frechette 的 ACL，音频预览与导出用 FMOD。</p>
+        <div class="callout callout-warn">
+          <h3>许可证不是一句话的事</h3>
+          <p>仓库整体声明 MIT，但里面有例外：Oodle 解压那一份代码带 GPLv3 头，FMOD 是免费非商用许可，FBX SDK 受 Autodesk 条款约束。自己拿来用没问题；想打包卖钱之前，先把这三条查清楚。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <div class="foot-cols">
+      <div>
+        <h3>手册</h3>
+        <a href="start.html">五分钟上手</a>
+        <a href="gui.html">界面导览</a>
+        <a href="batch.html">批量与资产地图</a>
+        <a href="pipeline.html">它怎么工作</a>
+      </div>
+      <div>
+        <h3>继续</h3>
+        <a href="games.html">游戏与它们的锁</a>
+        <a href="faq.html">疑难解答</a>
+        <a href="dev.html">想改代码</a>
+      </div>
+      <div>
+        <h3>源码与下载</h3>
+        <a href="https://github.com/Escartem/AnimeStudio">GitHub 仓库</a>
+        <a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 构建</a>
+        <a href="https://github.com/Escartem/AnimeStudio/wiki">官方 wiki</a>
+      </div>
+    </div>
+    <p class="foot-note">本手册依据仓库当前源码整理，行为以代码为准。AnimeStudio 是 Studio 与 AssetStudio 的衍生项目，作者 Escartem。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+    <p class="foot-word">AnimeStudio</p>
+  </div>
+</footer>
+
+<script src="data/games.js"></script>
+<script src="assets/site.js"></script>
+</body>
+</html>

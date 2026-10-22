@@ -1,0 +1,3 @@
+[Info] loaded 3 bundles
+[Error] failed to parse Texture2D name=Icon_Broken pathID=12345 reason=truncated
+[Info] done

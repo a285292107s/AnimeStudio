@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>绝区零的包，是三层壳 · 解密原理</title>
+<style>
+:root{
+  --bg:#ebe5e3;
+  --surface:#e1dad7;
+  --surface-2:#d5cdca;
+  --surface-3:#c8bfbc;
+  --ink:#2b2622;
+  --muted:#4f4844;
+  --accent:#0f7d45;
+  --accent-ink:#ffffff;
+  --field-dark:#2b2622;
+  --field-dark-ink:#ebe5e3;
+
+  --step-small:13px;
+  --step-body:16px;
+  --step-lead:21px;
+  --step-head:clamp(24px,2.1vw,30px);
+  --step-display:clamp(38px,6.4vw,104px);
+
+  --gap:6px;
+  --margin:clamp(20px,4vw,56px);
+  --ease:cubic-bezier(.16,.84,.3,1);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  margin:0;background:var(--bg);color:var(--ink);overflow-x:clip;
+  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
+  font-size:var(--step-body);line-height:1.75;
+  text-rendering:optimizeLegibility;
+}
+::selection{background:var(--accent);color:var(--accent-ink)}
+h1,h2,h3,h4,p,ul,ol,dl,figure{margin:0}
+h1,h2,h3,h4{font-weight:600;line-height:1.18;letter-spacing:-.01em}
+a{color:inherit}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  font-size:13px;background:var(--surface-2);color:var(--ink);
+  padding:.12em .38em;border-radius:4px;white-space:nowrap;
+}
+strong{font-weight:600}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1220px;margin:0 auto;padding:0 var(--margin)}
+.band{padding:clamp(72px,9vw,132px) 0}
+.band + .band{padding-top:0}
+.stack{display:grid;gap:clamp(18px,2.4vw,30px);align-content:start}
+.measure{max-width:66ch}
+.note{font-size:var(--step-small);color:var(--muted);line-height:1.7}
+.note code{white-space:normal;word-break:break-word}
+
+/* ---------- hero ---------- */
+.hero{min-height:100svh;display:flex;flex-direction:column;padding-top:56px}
+.brandline{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.mark{display:flex;align-items:center;gap:10px;font-size:var(--step-small);color:var(--muted);white-space:nowrap}
+.mark svg{display:block;width:22px;height:22px}
+.toplink{font-size:var(--step-small);color:var(--muted);text-decoration:none}
+.toplink:hover{color:var(--ink)}
+.hero > .wrap{width:100%}
+.hero-grid{flex:1;display:grid;align-content:end;padding-bottom:clamp(30px,6vh,64px)}
+.hero-col{display:grid;gap:22px;max-width:940px}
+.hero h1{font-size:var(--step-display);line-height:1.1;letter-spacing:-.03em;max-width:11em}
+.hero .sub{max-width:40ch}
+.hero-actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-top:6px}
+.btn{
+  display:inline-flex;align-items:center;gap:10px;
+  background:var(--accent);color:var(--accent-ink);
+  font-size:var(--step-body);font-weight:500;text-decoration:none;
+  padding:14px 24px;border-radius:4px;
+  transition:transform .18s var(--ease),background-color .18s var(--ease);
+}
+.btn:hover{transform:translateY(-2px);background:#0b6637}
+.btn:active{transform:translateY(0)}
+.arrow-link{font-size:var(--step-body);text-decoration:none;display:inline-flex;gap:8px;align-items:center}
+.arrow-link span{transition:transform .18s var(--ease)}
+.arrow-link:hover span{transform:translateX(4px)}
+
+/* peeking fragment: real container bytes */
+.peek{background:var(--surface)}
+.peek-inner{padding-top:20px}
+.peek-head{display:flex;justify-content:space-between;gap:16px;align-items:baseline;margin-bottom:12px;font-size:var(--step-small);color:var(--muted)}
+.byteview{position:relative;height:112px;overflow:hidden}
+.bytesheet{
+  position:absolute;inset:0;opacity:0;display:grid;gap:var(--gap);
+  grid-template-columns:repeat(16,minmax(0,1fr));align-content:start;
+  transition:opacity 1.4s var(--ease);
+}
+.bytesheet.on{opacity:1}
+.bytesheet .cell{
+  height:22px;background:var(--surface-2);font-size:var(--step-small);line-height:22px;
+  text-align:center;color:var(--muted);border-radius:2px;overflow:hidden;
+}
+.bytesheet .cell.hot{background:var(--accent);color:var(--accent-ink)}
+.bytesheet .cell.warm{background:var(--surface-3);color:var(--ink)}
+.bytesheet .cell.blank{background:rgba(43,38,34,.055)}
+.bytesheet-cap{display:flex;justify-content:space-between;gap:16px;font-size:var(--step-small);color:var(--muted);padding:12px 0 18px}
+
+/* ---------- statement ---------- */
+.statement{font-size:var(--step-head);line-height:1.45;letter-spacing:-.01em;max-width:30ch;font-weight:500}
+
+/* ---------- section head ---------- */
+.head{display:grid;gap:14px;margin-bottom:clamp(26px,3.4vw,44px)}
+.head h2{font-size:var(--step-head);max-width:26ch}
+.head p{max-width:52ch}
+
+/* ---------- stats (unboxed) ---------- */
+.statline{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:clamp(20px,3vw,36px);margin-top:clamp(40px,6vw,72px)}
+.stat b{display:block;font-size:34px;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:var(--step-small);color:var(--muted);margin-top:6px;line-height:1.5}
+
+/* ---------- layers ---------- */
+.surfacecard{background:var(--surface);border-radius:6px;padding:clamp(10px,1.4vw,16px)}
+.layers{display:grid;gap:var(--gap)}
+.layer{
+  display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);
+  gap:clamp(14px,2vw,28px);align-items:start;
+  padding:clamp(14px,1.8vw,20px);border-radius:3px;
+  transition:background-color .2s var(--ease);
+}
+.layer:hover{background:var(--surface-2)}
+.layer-name{display:grid;gap:2px}
+.layer-name b{font-size:var(--step-lead);font-weight:600;letter-spacing:-.01em}
+.layer-name span{font-size:var(--step-small);color:var(--muted)}
+.layer-body{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.chip{background:var(--bg);border-radius:3px;padding:4px 9px;font-size:var(--step-small);color:var(--ink)}
+.layer.dark{background:var(--field-dark);color:var(--field-dark-ink)}
+.layer.dark .layer-name span{color:#c9c1bd}
+.layer.dark .chip{background:#3b3430;color:#efe9e6}
+
+/* ---------- pipeline ---------- */
+.rail{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.hop{
+  appearance:none;border:0;cursor:pointer;text-align:left;
+  background:var(--surface);color:var(--muted);
+  padding:12px 10px 14px;border-radius:3px;
+  display:grid;gap:6px;align-content:start;
+  transition:background-color .2s var(--ease),color .2s var(--ease),transform .2s var(--ease);
+}
+.hop:hover{transform:translateY(-2px);color:var(--ink)}
+.hop .n{font-size:var(--step-small);color:var(--muted)}
+.hop .t{font-size:var(--step-body);font-weight:600;color:var(--ink);line-height:1.3}
+.hop[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+.hop[aria-selected="true"] .t,.hop[aria-selected="true"] .n{color:var(--accent-ink)}
+.panels{background:var(--surface);border-radius:6px;padding:clamp(20px,2.6vw,32px)}
+.panel{display:grid;gap:16px}
+.panel[hidden]{display:none}
+.panel-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(18px,3vw,40px)}
+.panel h3{font-size:var(--step-lead);max-width:26ch}
+.panel .anchor{font-size:var(--step-small);color:var(--muted)}
+.facts{display:grid;gap:0;margin:0}
+.facts div{display:grid;grid-template-columns:76px minmax(0,1fr);gap:12px;padding:8px 0;font-size:var(--step-body);line-height:1.6}
+.facts dt{color:var(--muted);font-size:var(--step-small)}
+.facts dd{margin:0}
+.pit{background:var(--bg);border-radius:4px;padding:14px 16px;font-size:var(--step-body);line-height:1.65}
+
+/* ---------- interface fragments (data-ui) ---------- */
+.shells{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(18px,3vw,36px);align-items:start}
+.shell{display:grid;gap:12px}
+.shell > h3{font-size:var(--step-lead)}
+.shell p{font-size:var(--step-body);line-height:1.7;color:var(--muted)}
+.ui{
+  background:var(--surface);border-radius:5px;padding:14px;
+  display:grid;gap:8px;font-size:var(--step-body);line-height:1.45;
+}
+.ui-head{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:var(--step-small);color:var(--muted);padding-bottom:2px}
+.ui-btn{background:var(--bg);color:var(--ink);padding:5px 10px;border-radius:3px;font-size:var(--step-small)}
+.ui-field{background:var(--bg);border-radius:3px;padding:7px 10px;color:var(--ink);font-size:var(--step-body)}
+.ui-field.sel{background:var(--accent);color:var(--accent-ink)}
+.ui-list{display:grid;gap:2px}
+.ui-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:10px;padding:5px 8px;background:var(--bg);border-radius:2px;align-items:baseline}
+.ui-row.sel{background:var(--accent);color:var(--accent-ink)}
+.ui-row .ty{color:var(--muted);font-size:var(--step-small)}
+.ui-row.sel .ty,.ui-row.sel .ct{color:#ffffff}
+.ui-row .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ui-row .ct{color:var(--muted);font-size:var(--step-small)}
+pre.ui-cli{background:var(--field-dark);color:#efe9e6;border-radius:5px;padding:16px;margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--step-small);line-height:1.8;white-space:pre-wrap;overflow-x:auto}
+.ui-cli .p{color:#8fded0}
+.ui-cli .c{color:#c9c1bd}
+.ui-view{height:96px;display:grid;place-items:center;color:var(--muted);background:var(--surface-2);border-radius:3px}
+
+/* ---------- table ---------- */
+.tbl{width:100%;border-collapse:collapse;font-size:var(--step-body)}
+.tbl caption{text-align:left;font-size:var(--step-small);color:var(--muted);padding-bottom:12px}
+.tbl th,.tbl td{text-align:left;padding:12px 14px;vertical-align:top;line-height:1.55}
+.tbl thead th{font-size:var(--step-small);color:var(--ink);font-weight:500;background:var(--surface-2)}
+.tbl tbody tr:nth-child(odd){background:var(--surface)}
+.tbl td code{background:var(--surface-2)}
+.tbl tbody tr:hover{background:var(--surface-2)}
+.tbl .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbl .sev{white-space:nowrap;font-size:var(--step-small)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px}
+.dot.hi{background:var(--accent)}
+.dot.mid{background:#8a6a25}
+.dot.lo{background:#7b736e}
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ---------- crypto ---------- */
+.cryptolayers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gap);margin-bottom:clamp(22px,3vw,36px)}
+.clayer{background:var(--surface);border-radius:4px;padding:clamp(16px,2vw,22px);display:grid;gap:10px;align-content:start}
+.clayer:nth-child(2){background:var(--surface-2)}
+.clayer:nth-child(3){background:var(--surface-2)}
+.clayer b{font-size:var(--step-lead);font-weight:600}
+.clayer .where{font-size:var(--step-small);color:var(--muted)}
+.clayer p{font-size:var(--step-body);line-height:1.6}
+.tagline{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}
+.tag{font-size:var(--step-small);background:var(--bg);padding:3px 8px;border-radius:3px;color:var(--ink)}
+
+/* ---------- slider figure ---------- */
+.figure-field{background:var(--field-dark);color:var(--field-dark-ink);border-radius:6px;padding:clamp(24px,4vw,48px)}
+.figure-field h3{font-size:var(--step-head);max-width:20ch}
+.figure-field .q{color:#c9c1bd;font-size:var(--step-body);margin-top:12px;max-width:56ch}
+.slider-wrap{margin-top:clamp(24px,3vw,40px);max-width:460px}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;
+  background:#4a423d;outline-offset:8px;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:26px;height:26px;border-radius:50%;
+  background:var(--accent);cursor:pointer;border:0;
+  transition:transform .15s var(--ease);
+}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.08)}
+input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:var(--accent);cursor:pointer;border:0}
+.readout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(18px,3vw,40px);align-items:end;margin-top:clamp(28px,4vw,56px)}
+.bigfig{font-size:clamp(56px,9vw,120px);font-weight:600;line-height:.86;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.bigfig small{font-size:21px;font-weight:500;letter-spacing:0;margin-left:.25em;vertical-align:.7em;color:#c9c1bd}
+.branch{font-size:var(--step-body);line-height:1.65;max-width:34ch}
+.branch .k{color:#8fded0;font-weight:600}
+.branch code{background:#3b3430;color:#efe9e6}
+
+/* ---------- rows ---------- */
+.rows{display:grid;gap:0}
+.row{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:baseline;
+  padding:14px 2px;transition:background-color .18s var(--ease),padding-left .18s var(--ease);
+}
+.row:hover{background:var(--surface);padding-left:12px}
+.row .rt{display:grid;gap:3px}
+.row .rt b{font-size:var(--step-body);font-weight:600}
+.row .rt span{font-size:var(--step-small);color:var(--muted);line-height:1.6}
+.row .rv{font-size:var(--step-small);color:var(--muted);white-space:nowrap}
+.grouphead{font-size:var(--step-small);color:var(--muted);margin:28px 0 6px}
+.rows > .grouphead:first-child{margin-top:0}
+
+/* ---------- phases ---------- */
+.phases{display:grid;gap:var(--gap);background:var(--surface);border-radius:6px;padding:clamp(10px,1.4vw,16px)}
+.phase{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr) minmax(0,150px);gap:clamp(14px,2vw,26px);align-items:start;padding:clamp(16px,2vw,22px);border-radius:3px}
+.phase:hover{background:var(--surface-2)}
+.phase .ph{font-size:var(--step-lead);font-weight:600}
+.phase .ph small{display:block;font-size:var(--step-small);font-weight:400;color:var(--muted);margin-top:4px}
+.phase ul{margin:0;padding-left:18px;font-size:var(--step-body);line-height:1.75;display:grid;gap:4px}
+.phase .eff{font-size:var(--step-small);color:var(--muted);text-align:right}
+
+/* ---------- callout ---------- */
+.callout{background:var(--surface-2);border-radius:6px;padding:clamp(22px,3vw,34px);display:grid;gap:14px}
+.callout h3{font-size:var(--step-lead)}
+.callout p{font-size:var(--step-body);line-height:1.75;max-width:72ch}
+
+/* ---------- footer ---------- */
+footer{padding:0 var(--margin) var(--margin)}
+.foot{max-width:1220px;margin:0 auto;display:grid;gap:var(--gap)}
+.foot-band{background:var(--field-dark);color:var(--field-dark-ink);border-radius:6px;padding:clamp(24px,3vw,40px);display:grid;gap:clamp(24px,3vw,40px)}
+.foot-cols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.8fr) minmax(0,.9fr);gap:clamp(20px,3vw,40px);align-items:start}
+.foot-band h3{font-size:var(--step-lead)}
+.foot-band p,.foot-band li{font-size:var(--step-body);line-height:1.75;color:#c9c1bd}
+.foot-band ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.foot-band a{text-decoration:none;color:var(--field-dark-ink)}
+.foot-band a:hover{color:#8fded0}
+.wordmark{font-size:clamp(34px,5.6vw,76px);font-weight:600;letter-spacing:-.03em;line-height:1;display:block;overflow-wrap:anywhere}
+.foot-cta{background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:clamp(22px,3vw,32px);display:grid;gap:12px}
+.foot-cta a{text-decoration:none;color:inherit;display:grid;gap:8px}
+.foot-cta h3{font-size:var(--step-lead)}
+.foot-cta p{font-size:var(--step-body);line-height:1.6}
+.foot-cta .go{font-size:var(--step-lead);margin-top:6px}
+
+/* ---------- motion ---------- */
+.js [data-rise]{opacity:0;transform:translateY(20px);transition:opacity .7s var(--ease),transform .7s var(--ease);transition-delay:calc(var(--i,0) * 70ms)}
+.js [data-rise].in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  .js [data-rise]{opacity:1;transform:none}
+  html{scroll-behavior:auto}
+}
+
+/* ---------- responsive ---------- */
+@media (max-width:1080px){
+  .panel-grid{grid-template-columns:1fr}
+  .cryptolayers{grid-template-columns:1fr}
+  .shells{grid-template-columns:1fr}
+  .phase{grid-template-columns:1fr}
+  .phase .eff{text-align:left}
+  .readout{grid-template-columns:1fr;align-items:start}
+  .foot-cols{grid-template-columns:1fr}
+}
+@media (max-width:760px){
+  :root{--step-body:16px}
+  .hero{padding-top:32px;min-height:auto}
+  .hero-grid{align-content:start;padding-top:clamp(48px,12vh,88px);padding-bottom:32px}
+  .hero h1{max-width:none}
+  .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .layer{grid-template-columns:1fr;gap:8px}
+  .row{grid-template-columns:1fr}
+  .row .rv{order:-1}
+  .bytesheet{grid-template-columns:repeat(8,minmax(0,1fr))}
+  .byteview{height:136px}
+  .facts div{grid-template-columns:1fr;gap:2px}
+  .scroll-x{overflow:visible}
+  .tbl thead{display:none}
+  .tbl,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+  .tbl tbody tr{background:var(--surface);border-radius:4px;padding:12px 14px;margin-bottom:var(--gap)}
+  .tbl tbody tr:nth-child(odd){background:var(--surface)}
+  .tbl td{padding:3px 0}
+  .tbl td[data-l]::before{content:attr(data-l);display:block;font-size:var(--step-small);color:var(--muted)}
+  .tbl caption{display:none}
+}
+</style>
+<style>
+/* ---- 这份报告新增的组件 ---- */
+.hero-sub{max-width:46ch}
+.stripbox{display:grid;gap:10px;margin-top:18px}
+.bytestrip{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:6px}
+.bcell{
+  height:36px;display:grid;place-items:center;background:var(--surface-2);
+  border-radius:3px;font-size:13px;font-variant-numeric:tabular-nums;color:var(--muted);
+  transition:background-color .3s var(--ease),color .3s var(--ease);
+}
+.bcell.ascii{background:var(--field-dark);color:#efe9e6}
+.bcell.hit{background:var(--accent);color:#fff}
+.bcell.chg{background:var(--surface-3);color:var(--ink)}
+.striplabel{display:flex;justify-content:space-between;gap:14px;font-size:13px;color:var(--muted)}
+.toggle{display:flex;gap:6px;flex-wrap:wrap}
+button.act{
+  appearance:none;border:0;cursor:pointer;font:inherit;
+  background:var(--accent);color:var(--accent-ink);padding:10px 16px;border-radius:4px;
+  font-size:16px;font-weight:500;
+  transition:transform .15s var(--ease),background-color .15s var(--ease);
+}
+button.act:hover{transform:translateY(-2px);background:#0b6637}
+button.act:disabled{background:var(--surface-3);color:var(--muted);cursor:default;transform:none}
+button.ghost{
+  appearance:none;border:0;cursor:pointer;font:inherit;
+  background:var(--surface-2);color:var(--ink);padding:9px 14px;border-radius:4px;font-size:14px;
+}
+button.ghost:hover{background:var(--surface-3)}
+.ops{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px}
+.op{background:var(--surface-2);border-radius:3px;padding:10px 12px;font-size:13px;line-height:1.5}
+.op b{display:block;font-size:14px;font-weight:600;margin-bottom:2px}
+.op.on{background:var(--accent);color:#fff}
+.op.on b{color:#fff}
+.detail{background:var(--surface-2);border-radius:4px;margin-bottom:6px}
+.detail summary{
+  cursor:pointer;padding:14px 18px;font-size:16px;font-weight:600;list-style:none;
+  display:flex;justify-content:space-between;gap:14px;align-items:baseline;border-radius:4px;
+}
+.detail summary::-webkit-details-marker{display:none}
+.detail summary::after{content:"展开";font-size:13px;font-weight:400;color:var(--muted)}
+.detail[open] summary::after{content:"收起"}
+.detail[open] summary{background:var(--accent);color:#fff}
+.detail[open] summary::after{color:#d8f0e2}
+.detail .body{padding:4px 18px 18px;font-size:14px;line-height:1.75;display:grid;gap:10px}
+.detail .body code{background:var(--bg)}
+.chain{display:grid;gap:var(--gap)}
+.step{display:grid;grid-template-columns:minmax(0,52px) minmax(0,1fr) minmax(0,150px);gap:clamp(12px,2vw,22px);align-items:baseline;padding:12px 14px;background:var(--surface);border-radius:3px}
+.step .sn{font-size:21px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+.step .sx{display:grid;gap:3px}
+.step .sx b{font-size:15px;font-weight:600}
+.step .sx span{font-size:13px;color:var(--muted);line-height:1.55}
+.step .sa{font-size:13px;color:var(--muted);text-align:right}
+.hexnote{font-size:13px;color:var(--muted);line-height:1.7}
+.kv{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:10px 18px;font-size:14px;line-height:1.65}
+.kv dt{color:var(--muted);font-size:13px}
+.kv dd{margin:0}
+.surfacecard p{max-width:68ch}
+main p{max-width:72ch}
+.detail .body p{max-width:66ch}
+.two-col{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(18px,2.6vw,32px);align-items:start}
+.qa{display:grid;gap:6px}
+@media (max-width:1080px){ .two-col{grid-template-columns:1fr} }@media (max-width:760px){
+  .step{grid-template-columns:minmax(0,36px) minmax(0,1fr)}
+  .step .sa{grid-column:2;text-align:left}
+  .bytestrip{grid-template-columns:repeat(8,minmax(0,1fr))}
+  .kv{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap brandline">
+    <div class="mark">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="#2b2622"/><rect x="13" y="2" width="9" height="9" rx="1.5" fill="#0f7d45"/><rect x="2" y="13" width="9" height="9" rx="1.5" fill="#c8bfbc"/><rect x="13" y="13" width="9" height="9" rx="1.5" fill="#e1dad7"/></svg>
+      <span>解密原理 · 以绝区零为例</span>
+    </div>
+    <a class="toplink" href="index.html">← 返回总报告</a>
+  </div>
+
+  <div class="wrap hero-grid">
+    <div class="hero-col">
+      <h1>一个包要过<br>三层壳</h1>
+      <p class="sub hero-sub">从磁盘上的 <code>mhy0</code> 文件，到你屏幕上的一个图标，中间有两次字节解扰、一次流密码和一次 Oodle 解压。下面是每一层在做什么，以及工具凭什么知道下一步该干什么。</p>
+      <p class="note">参数一律不复述：本文只讲结构与顺序。行号对应 AnimeStudio master <code>e616e3f</code>。</p>
+      <div class="hero-actions">
+        <a class="btn" href="#layers">从第一层看起 <span aria-hidden="true">→</span></a>
+        <a class="arrow-link" href="#diag">直接看失败诊断 <span aria-hidden="true">→</span></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="peek" data-ui>
+    <div class="wrap peek-inner">
+      <div class="peek-head">
+        <span>容器头的头 16 字节：解扰前是噪声，解扰后能读出标记</span>
+        <span id="peekTag">未解扰</span>
+      </div>
+      <div class="stripbox">
+        <div class="bytestrip" id="heroStrip" aria-hidden="true"></div>
+        <div class="striplabel"><span id="heroNote">按 16 字节一组的乱码</span><span>偏移 0x00</span></div>
+      </div>
+      <div class="toggle" style="padding:4px 0 18px">
+        <button class="ghost" id="heroToggle" type="button">解扰</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<section class="band wrap" id="thesis">
+  <p class="statement" data-rise>它没有把整个文件加密。只加密了每块的头，而那几十个字节，刚好是解压器唯一要读的地方。</p>
+  <div class="statline">
+    <div class="stat" data-rise style="--i:0"><b>2</b><span>次字节解扰：容器头与块头各一次</span></div>
+    <div class="stat" data-rise style="--i:1"><b>3</b><span>轮自定义置换，用来藏一个 16 字节种子</span></div>
+    <div class="stat" data-rise style="--i:2"><b>1</b><span>次标准 AES，只做密钥扩散</span></div>
+    <div class="stat" data-rise style="--i:3"><b>RC4</b><span>覆盖块内载荷的剩余部分</span></div>
+    <div class="stat" data-rise style="--i:4"><b>Oodle</b><span>最后的解压，必须原生库</span></div>
+  </div>
+</section>
+
+<section class="band wrap" id="layers">
+  <div class="head" data-rise>
+    <h2>六跳，第一跳只是认四个字节</h2>
+    <p>和 UnityFS 那套不同，ZZZ 用的是一种叫 <code>mhy0</code> / <code>mhy1</code> 的自有容器。它的字段布局像 UnityFS，但每一段都做了手脚。</p>
+  </div>
+
+  <div class="chain" data-ui>
+    <div class="step" data-rise>
+      <div class="sn">1</div>
+      <div class="sx"><b>认签名</b><span>读头 4 字节，等于 <code>mhy0</code> 或 <code>mhy1</code> 就判为自有容器。这两个字符串是明文，不加密。</span></div>
+      <div class="sa">FileReader.cs:37</div>
+    </div>
+    <div class="step" data-rise>
+      <div class="sn">2</div>
+      <div class="sx"><b>改判成聚合体</b><span>ZZZ 与 ZZZ_CB2 会被强制改判成 <code>BlockFile</code>：一个文件里可能装着多个包，得逐个拆。</span></div>
+      <div class="sa">FileReader.cs:273</div>
+    </div>
+    <div class="step" data-rise>
+      <div class="sn">3</div>
+      <div class="sx"><b>顺序推进</b><span>没有索引时，它不扫魔数：在当前位置解一个包，解完流已经走到下一个包的开头，循环继续。这是「顺序链」，不是「随机访问」。</span></div>
+      <div class="sa">OffsetStream.cs:70</div>
+    </div>
+    <div class="step" data-rise>
+      <div class="sn">4</div>
+      <div class="sx"><b>容器头解扰</b><span>读 4 字节签名 + 4 字节长度，然后对 blocksInfo 做一次解扰：<code>mhy0</code> 跳过 32 字节，<code>mhy1</code> 跳过 48 字节。</span></div>
+      <div class="sa">MhyFile.cs:86</div>
+    </div>
+    <div class="step" data-rise>
+      <div class="sn">5</div>
+      <div class="sx"><b>块解扰 + 解压</b><span>每个数据块再解一次头（<code>mhy0</code> 跳 12 字节，<code>mhy1</code> 跳 28），剩下的才是真正的压缩数据。</span></div>
+      <div class="sa">MhyFile.cs:180</div>
+    </div>
+    <div class="step" data-rise>
+      <div class="sn">6</div>
+      <div class="sx"><b>还原成 Unity 对象</b><span>块流被切成一个个 CAB，交给序列化器读类型表、对象表，最后按 ClassID 造对象。到这一步已经和解密无关了。</span></div>
+      <div class="sa">AssetsManager.cs:697</div>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap" id="rounds">
+  <div class="head" data-rise>
+    <h2>第一次解扰：把 16 字节转三圈</h2>
+    <p>解扰函数只有十几行，但它是整个方案的核心。每一轮做四件事，顺序固定：<strong>换位 → 有限域乘 → 查表替换 → 异或密钥</strong>。三轮之后，噪声变成可读的标记。</p>
+  </div>
+
+  <div class="surfacecard" data-ui>
+    <div class="stripbox">
+      <div class="ops" id="opRow">
+        <div class="op" data-op="0"><b>换位</b>按一张 48 字节的表，把每个字节挪到另一个位置</div>
+        <div class="op" data-op="1"><b>域乘</b>把字节当作 GF(2⁸) 里的元素，乘一个固定系数</div>
+        <div class="op" data-op="2"><b>替换</b>用一张 4×256 的表查新值，行号取字节位置除以 4 的余数</div>
+        <div class="op" data-op="3"><b>异或</b>与 8 字节密钥循环异或</div>
+      </div>
+      <div class="bytestrip" id="roundStrip" aria-hidden="true"></div>
+      <div class="striplabel"><span id="roundNote">解扰前</span><span id="roundCount">第 0 / 3 轮</span></div>
+      <div class="toggle" style="margin-top:6px">
+        <button class="act" id="roundNext" type="button">解一轮</button>
+        <button class="ghost" id="roundReset" type="button">重来</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-top:clamp(24px,3vw,36px)">
+    <div>
+      <h3 style="font-size:21px;margin-bottom:10px">它像 AES，但不是 AES</h3>
+      <p style="font-size:14px;line-height:1.8;color:var(--muted)">四个操作的形状和 AES 的轮函数一样：SubBytes、ShiftRows、MixColumns、AddRoundKey。但每一处都不标准：替代表是 4 行而不是 1 行，密钥只有 8 字节且循环使用，轮数只有 3，也没有密钥扩展。</p>
+      <p style="font-size:14px;line-height:1.8;color:var(--muted);margin-top:10px">所以它的目的不是「抗密码分析」，而是<strong>让静态特征失效</strong>：没有魔数、没有可 grep 的常量、每个字节都经过一次非线性替换。</p>
+    </div>
+    <div class="callout">
+      <h3>为什么只转三圈</h3>
+      <p>这一步跑在每一块数据的开头，是纯 CPU 开销。三轮足以把标记藏起来，又便宜到可以在上百个块上重复执行而不拖慢解包。安全目标只有一个：<strong>不让别人一眼看出这是 mhy 容器。</strong></p>
+      <p>真正的密钥扩散交给下一步的标准 AES。</p>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap" id="seed">
+  <div class="head" data-rise>
+    <h2>解出标记之后，链子才真正开始</h2>
+    <p>三轮跑完，16 字节里的前 8 字节应当是 ASCII 的 <code>mhynewec</code>。这是一个<strong>自校验</strong>：对不上就说明参数用错了，立刻抛异常，而不是等到后面解压出垃圾才发现。</p>
+  </div>
+
+  <div class="surfacecard" data-ui style="padding:clamp(20px,3vw,34px)">
+    <dl class="kv">
+      <dt>第 1 步</dt><dd>解扰 <code>input[4..20]</code>，读出标记 <code>mhynewec</code>。对不上直接失败。</dd>
+      <dt>第 2 步</dt><dd>若块长度不超过 35 字节，到此为止（小块的头部就这么多）。</dd>
+      <dt>第 3 步</dt><dd>解扰 <code>input[20..36]</code>，再得到 16 字节。</dd>
+      <dt>第 4 步</dt><dd>取 <code>input[0..16]</code> 作为 <strong>seed</strong>，也就是根密钥。</dd>
+      <dt>第 5 步</dt><dd>用 seed 作为密钥，对这 16 字节做一次 <strong>标准 AES-256-ECB 加密</strong>，结果写回原处；再拿结果的前 4 字节异或到头部四个字节上。</dd>
+      <dt>第 6 步</dt><dd>从结果里取两段 8 字节，作为 <strong>RC4</strong> 的密钥与操作数。</dd>
+      <dt>第 7 步</dt><dd>RC4 流密码覆盖 <code>[20 + 块头对齐长度, 块尾)</code> 这一段，也就是真正的载荷。</dd>
+    </dl>
+  </div>
+
+  <div class="callout" style="margin-top:clamp(22px,3vw,34px)">
+    <h3>这一步的真正作用：把 16 字节扩散成 8 字节</h3>
+    <p>seed 直接当 RC4 密钥并不合适，长度和分布都不对。所以中间插了一次标准 AES：用 seed 加密一块已知的 16 字节，把输出当派生材料。<strong>seed 错一位，派生材料全变，RC4 解出来就是纯噪声。</strong></p>
+    <p>关键点在于：这个方案<strong>没有</strong>独立的「密码正确性检查」。你在第 4 步之后不会收到任何错误，错误只会在 Oodle 解压时以「输出长度不对」的形式暴露出来。这就是为什么工具里到处是长度断言而不是异常类型判断。</p>
+  </div>
+</section>
+
+<section class="band wrap" id="blockhead">
+  <div class="head" data-rise>
+    <h2>第二次解扰：每块的头再来一遍</h2>
+    <p>容器头解完之后，你拿到的是一张块表：每块多大、压缩后多大。但每块自己的开头还有一段头，解扰方式和刚才一样，只是跳过的长度不同。</p>
+  </div>
+
+  <div class="scroll-x">
+    <table class="tbl">
+      <caption>两代 mhy 容器的偏移差异，写死在不同分支里</caption>
+      <thead><tr><th scope="col">环节</th><th scope="col">mhy0</th><th scope="col">mhy1</th></tr></thead>
+      <tbody>
+        <tr><td data-l="环节">容器头解扰后跳过的长度</td><td data-l="mhy0">32 字节</td><td data-l="mhy1">48 字节</td></tr>
+        <tr><td data-l="环节">块头解扰后跳过的长度</td><td data-l="mhy0">12 字节</td><td data-l="mhy1">28 字节</td></tr>
+        <tr><td data-l="环节">解扰函数</td><td data-l="mhy0">DescrambleHeader / DescrambleEntry</td><td data-l="mhy1">DescrambleHeader2 / DescrambleEntry2</td></tr>
+        <tr><td data-l="环节">跳过的部分是什么</td><td data-l="mhy0">标记、种子、校验用的 4 字节</td><td data-l="mhy1">同上，字段更多</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="note" style="margin-top:16px">这就是为什么「解出来前 32 字节是对的、后面全是垃圾」是最典型的症状之一：解扰只跑了一次，第二次没跑。</p>
+</section>
+
+<section class="band wrap" id="liar">
+  <div class="head" data-rise>
+    <h2>最容易被骗的地方：格式里的 flag 在撒谎</h2>
+    <p>块表里每个块都有一个 flag，声明自己用哪种压缩。工具理应按 flag 走。但在 ZZZ 2.0 之后，这个字段不再可信。</p>
+  </div>
+
+  <div class="surfacecard" data-ui style="padding:clamp(20px,3vw,34px)">
+    <p style="font-size:15px;line-height:1.8">从 2.0 起，块实际上换成了 Oodle 压缩，但 flag 仍然写着 LZ4。源码里对这一点的处理是一行判断：</p>
+    <pre class="ui-cli" data-ui style="margin-top:14px"><span class="c">// 不看 flag，看首字节</span>
+isOodle = compressedBlocksInfo[0] == 0x8C;</pre>
+    <p style="font-size:15px;line-height:1.8;margin-top:14px">于是解压函数变成二选一：首字节是 <code>0x8C</code> 就走 Oodle，否则走 LZ4。注意这是<strong>对格式文档的不信任</strong>，不是猜测：Oodle 的块首字节有固定的取值范围，用它交叉验证比读 flag 可靠。</p>
+  </div>
+
+  <div class="two-col" style="margin-top:clamp(22px,3vw,34px)">
+    <div class="callout">
+      <h3>这给做工具的人一条通用经验</h3>
+      <p>凡是「文件里写着格式」的字段，都要有第二条独立判据。flag 是给官方读取器用的，官方知道自己的版本；你不知道，所以你只能看内容本身。</p>
+    </div>
+    <div class="callout">
+      <h3>为什么 Oodle 必须用原生库</h3>
+      <p>Oodle 是商业压缩库，没有公开的格式规范。开源实现只有逆向出来的 Kraken 解码器，因此只能以原生 DLL 形式调用，不能用纯脚本重写。这也是「纯 Python 方案」在 ZZZ 上走不通的根本原因。</p>
+    </div>
+  </div>
+</section>
+
+<section class="band wrap" id="chain-code">
+  <div class="head" data-rise>
+    <h2>把上面的顺序，对回代码</h2>
+    <p>如果你要自己重写，只需要盯住这七行。顺序错了，症状会变得很难猜。</p>
+  </div>
+
+  <div class="scroll-x">
+    <table class="tbl">
+      <caption>ZZZ 路径上的关键调用</caption>
+      <thead><tr><th scope="col">顺序</th><th scope="col">位置</th><th scope="col">做了什么</th></tr></thead>
+      <tbody>
+        <tr><td data-l="顺序">1</td><td data-l="位置"><code>FileReader.cs:96</code></td><td data-l="动作">签名等于 mhy0/mhy1，判定为 MhyFile</td></tr>
+        <tr><td data-l="顺序">2</td><td data-l="位置"><code>FileReader.cs:273</code></td><td data-l="动作">ZZZ 改判为 BlockFile，进入聚合体拆解</td></tr>
+        <tr><td data-l="顺序">3</td><td data-l="位置"><code>AssetsManager.cs:620</code></td><td data-l="动作">逐段推进，每段重新嗅探</td></tr>
+        <tr><td data-l="顺序">4</td><td data-l="位置"><code>MhyFile.cs:57</code></td><td data-l="动作">读签名与长度，进入容器头解扰</td></tr>
+        <tr><td data-l="顺序">5</td><td data-l="位置"><code>MhyFile.cs:236</code></td><td data-l="动作">DescrambleChunk 三轮变换</td></tr>
+        <tr><td data-l="顺序">6</td><td data-l="位置"><code>MhyFile.cs:283</code></td><td data-l="动作">AES-ECB 派生 + RC4 覆盖载荷</td></tr>
+        <tr><td data-l="顺序">7</td><td data-l="位置"><code>MhyFile.cs:180</code></td><td data-l="动作">逐块解扰并解压，写入块流</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="band wrap" id="diag">
+  <div class="head" data-rise>
+    <h2>七种症状，对应七个原因</h2>
+    <p>逆向这件事，判断「错在哪一层」比「怎么写对」更花时间。下面这张表是从症状倒推位置。</p>
+  </div>
+
+  <div class="qa">
+    <details class="detail" open>
+      <summary>签名对不上：expected mhynewec</summary>
+      <div class="body">
+        <p><b>原因：</b>解扰参数不对。常见是拿了另一款游戏（或另一个版本）的表，或者 <code>ShiftRow</code> 的轮序取反了。</p>
+        <p><b>怎么确认</strong>：把三轮改成一轮，看输出是不是「部分可读」。如果任何一轮都读不出，说明表或轮序整体错了。</p>
+      </div>
+    </details>
+    <details class="detail">
+      <summary>前 32 字节正确，后面全乱</summary>
+      <div class="body">
+        <p><b>原因</b>：第二次解扰没跑，或者跳过的长度用错（块头 12 / 28 字节）。</p>
+        <p><b>怎么确认</b>：打印解扰后的块头前 4 字节，正常情况下应当能看出压缩流的特征。</p>
+      </div>
+    </details>
+    <details class="detail">
+      <summary>解压报长度不符</summary>
+      <div class="body">
+        <p><b>原因</b>：三种可能，按概率排：选错了解压器（Oodle 当成 LZ4）、RC4 的覆盖范围错了一位、块表里的长度本身没解对。</p>
+        <p><b>怎么确认</b>：先只解第一块，用两种解压器各试一次，看哪个的输出长度接近声明值。</p>
+      </div>
+    </details>
+    <details class="detail">
+      <summary>DllNotFoundException</summary>
+      <div class="body">
+        <p><b>原因</b>：缺原生 Oodle 解码器。ZZZ 从 2.0 起必须要有它。</p>
+        <p><b>怎么确认</b>：看缺失的 DLL 名。托管层找不到原生库时，报错永远是这一个。</p>
+      </div>
+    </details>
+    <details class="detail">
+      <summary>整块解出来是零</summary>
+      <div class="body">
+        <p><b>原因</b>：RC4 用了全零密钥，或者 seed 取错了区间（把 <code>input[20..36]</code> 当成了 seed）。</p>
+        <p><b>怎么确认</b>：打印派生出的两段 8 字节，看是否全零或高度重复。</p>
+      </div>
+    </details>
+    <details class="detail">
+      <summary>只有第一个包能开，后面都失败</summary>
+      <div class="body">
+        <p><b>原因</b>：聚合体的顺序推进断了。每解完一个包，流位置必须停在下一个包的开头；如果读多了几个字节，后面全部错位。</p>
+        <p><b>怎么确认</b>：记录每次 yield 的偏移，看是否单调递增、间隔是否合理。</p>
+      </div>
+    </details>
+    <details class="detail">
+      <summary>能解出来，但对象类型全是 Unknown</summary>
+      <div class="body">
+        <p><b>原因</b>：已经过了解密层。问题在序列化层：版本被 strip、或者类型表被混淆过。</p>
+        <p><b>怎么确认</b>：看是不是所有对象都失败；如果只有 MonoBehaviour 失败，那是缺 typetree，不是解密问题。</p>
+      </div>
+    </details>
+  </div>
+</section>
+
+<section class="band wrap" id="why">
+  <div class="head" data-rise>
+    <h2>这套设计为什么长这样</h2>
+    <p>把三个决定放在一起看，会发现它不是「越强越好」，而是「越省越好」：每一层只保护它必须保护的那几十个字节。</p>
+  </div>
+
+  <div class="chain" data-ui>
+    <div class="step" data-rise>
+      <div class="sn">A</div>
+      <div class="sx"><b>只保护头部，不保护全部</b><span>解压器必须先读块头才能解压。把头加密，整个块就不可解；把整块加密，等于对几百 MB 做对称运算，加载会慢到不可接受。所以他们只加密头，剩下的交给 RC4 做混淆。</span></div>
+      <div class="sa">性能优先</div>
+    </div>
+    <div class="step" data-rise>
+      <div class="sn">B</div>
+      <div class="sx"><b>每块独立密钥</b><span>每块自带 seed，从块内容派生。好处是任何一块都能单独解，不需要全文顺序读取；代价是块与块之间没有关联，没法做完整性校验。</span></div>
+      <div class="sa">随机访问</div>
+    </div>
+    <div class="step" data-rise>
+      <div class="sn">C</div>
+      <div class="sx"><b>自定义 + 标准混用</b><span>外层用自定义三轮变换挡静态分析，内层用标准 AES 做扩散，载荷用 RC4 图快。安全强度由标准算法保证，反分析成本由自定义部分承担。</span></div>
+      <div class="sa">分层防御</div>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top:clamp(24px,3vw,36px)">
+    <h3>所以「解密」在这里其实是四个不同的动作</h3>
+    <p>解扰（恢复可读的头部）、派生（算出真正的密钥材料）、流解密（还原载荷）、解压（还原明文）。工具里它们是四段独立代码，出错时的报错也完全不同。理解这一点，比记住任何一个函数名都有用。</p>
+  </div>
+</section>
+
+<section class="band wrap" id="boundary">
+  <p class="statement" data-rise>这里没有密钥，也没有能跑的解密器。<br>只有结构和顺序。</p>
+  <div class="measure" style="margin-top:clamp(24px,3.4vw,40px);display:grid;gap:14px">
+    <p>文中所有参数位置都指向源码行号，但一个字节都没有复述：表、种子、常量都在仓库里，需要时直接读。这样做的原因是——理解机制和获得解密能力是两件事，前者值得讲清楚，后者不该由一份报告提供。</p>
+    <p>另外两点边界：不要绕过游戏的反作弊与在线校验，那已经超出「读本地资源」的范围；素材用于站点时按引用性使用处理，署名与下架机制提前设计。</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="foot">
+    <div class="foot-band">
+      <div class="foot-cols">
+      <div style="display:grid;gap:12px">
+        <span class="wordmark">mhy0</span>
+        <p style="font-size:13px">两代容器，两套偏移，一个说谎的 flag。</p>
+      </div>
+      <div style="display:grid;gap:10px">
+        <h3>这篇讲的是什么</h3>
+        <p>以绝区零为例，拆开一个包所需的四类操作：解扰、派生、流解密、解压。</p>
+        <p>行号对应 AnimeStudio master <code>e616e3f</code>。</p>
+      </div>
+      <div style="display:grid;gap:10px;align-content:start">
+        <h3>相关</h3>
+        <ul>
+          <li><a href="index.html">架构与改造总报告</a></li>
+          <li><a href="index.html#crypto">加密矩阵</a></li>
+          <li><a href="index.html#risks">缺陷清单</a></li>
+        </ul>
+      </div>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  document.documentElement.classList.add('js');
+
+  /* ---------- 共用：把字节数组渲染成格子 ---------- */
+  function render(el, bytes, opt){
+    opt = opt || {};
+    bytes = Array.from(bytes);   // Uint8Array.map 会返回 typed array，字符串会被截成 0
+    el.innerHTML = bytes.map(function(b, i){
+      var cls = 'bcell';
+      if (opt.ascii) {
+        if (i < (opt.asciiLen || 0)) {
+          if (opt.hit) cls += ' hit';
+          else cls += ' ascii';
+          return '<span class="' + cls + '">' + String.fromCharCode(b) + '</span>';
+        }
+        return '<span class="' + cls + '">' + hex(b) + '</span>';
+      }
+      if (opt.hitFrom !== undefined && i >= opt.hitFrom) cls += ' chg';
+      return '<span class="' + cls + '">' + hex(b) + '</span>';
+    }).join('');
+  }
+  function hex(b){ return ('0' + b.toString(16)).slice(-2); }
+
+  /* ---------- 首屏：解扰前后 ---------- */
+  var GARBAGE = [0x9e,0x31,0xa7,0x05,0x6b,0xf2,0x18,0xc4,0x73,0x2d,0x9a,0x40,0xce,0x57,0x0b,0x86];
+  var PLAIN   = [0x6d,0x68,0x79,0x6e,0x65,0x77,0x65,0x63,0x1f,0x84,0xa2,0x5d,0xe7,0x03,0x9b,0x42];
+  var heroStrip = document.getElementById('heroStrip');
+  var heroTag = document.getElementById('peekTag');
+  var heroNote = document.getElementById('heroNote');
+  var heroBtn = document.getElementById('heroToggle');
+  var plain = false;
+  function paintHero(){
+    if (plain) {
+      render(heroStrip, PLAIN, {ascii:true, asciiLen:8, hit:true, hitLen:8});
+      heroTag.textContent = '已解扰';
+      heroNote.textContent = '前 8 字节是 ASCII：mhynewec';
+      heroBtn.textContent = '还原';
+    } else {
+      render(heroStrip, GARBAGE);
+      heroTag.textContent = '未解扰';
+      heroNote.textContent = '按 16 字节一组的乱码';
+      heroBtn.textContent = '解扰';
+    }
+  }
+  if (heroBtn) {
+    heroBtn.addEventListener('click', function(){ plain = !plain; paintHero(); });
+    paintHero();
+  }
+
+  /* ---------- 三轮解扰演示（玩具参数） ---------- */
+  // 结构照抄真实实现：out[j] = Key[j%8] ^ SBox[(j%4)*256 + GFmul(Mul[j%8], in[shift[j]])]
+  var KEY = [0x2f,0x51,0x8c,0x13,0xa4,0x6d,0x97,0x28];
+  var MUL = [1,3,5,7,11,13,17,19];
+  var SB = new Uint8Array(1024);
+  for (var r = 0; r < 4; r++){
+    for (var x = 0; x < 256; x++){
+      SB[r*256 + x] = (x * 137 + r * 61 + 17) & 0xFF;
+    }
+  }
+  function gf(a, b){
+    var p = 0;
+    while (b){
+      if (b & 1) p ^= a;
+      var hi = a & 0x80;
+      a = (a << 1) & 0xFF;
+      if (hi) a ^= 0x1D;
+      b >>= 1;
+    }
+    return p;
+  }
+  // 三行轮换表：row0 恒等，row1 左移 5，row2 左移 11
+  var SHIFT = new Uint8Array(48);
+  for (var row = 0; row < 3; row++){
+    var k = row === 0 ? 0 : (row === 1 ? 5 : 11);
+    for (var j = 0; j < 16; j++) SHIFT[row*16 + j] = (j + k) % 16;
+  }
+  function round(inb, i){
+    var out = new Uint8Array(16);
+    for (var j = 0; j < 16; j++){
+      var src = SHIFT[(2 - i) * 16 + j];
+      var idx = j % 8;
+      out[j] = (KEY[idx] ^ SB[((j % 4) * 256) + gf(MUL[idx], inb[src])]) & 0xFF;
+    }
+    return out;
+  }
+  function inverseRound(outb, i){
+    var inb = new Uint8Array(16);
+    for (var j = 0; j < 16; j++){
+      var src = SHIFT[(2 - i) * 16 + j];
+      var idx = j % 8, r4 = j % 4;
+      // 反查表：对 0..255 求 g(x)，找到等于 out[j] 的 x
+      for (var x = 0; x < 256; x++){
+        if (((KEY[idx] ^ SB[r4 * 256 + gf(MUL[idx], x)]) & 0xFF) === outb[j]) { inb[src] = x; break; }
+      }
+    }
+    return inb;
+  }
+  // 目标：解扰后前 8 字节可读
+  var TARGET = new Uint8Array([0x6d,0x68,0x79,0x6e,0x65,0x77,0x65,0x63,
+                               0x3c,0x8f,0x21,0xd6,0x05,0xba,0x77,0x19]);
+  var start = inverseRound(inverseRound(inverseRound(TARGET, 2), 1), 0);
+
+  var strip = document.getElementById('roundStrip');
+  var note = document.getElementById('roundNote');
+  var counter = document.getElementById('roundCount');
+  var nextBtn = document.getElementById('roundNext');
+  var resetBtn = document.getElementById('roundReset');
+  var opEls = Array.prototype.slice.call(document.querySelectorAll('.op'));
+  var state = new Uint8Array(start), step = 0, done = false;
+
+  function paintRound(){
+    if (done){
+      render(strip, state, {ascii:true, asciiLen:8, hit:true, hitLen:8});
+      note.textContent = '三轮之后：前 8 字节是 mhynewec';
+      counter.textContent = '第 3 / 3 轮';
+    } else {
+      render(strip, state);
+      note.textContent = step === 0 ? '解扰前：16 字节噪声' : '已完成 ' + step + ' 轮';
+      counter.textContent = '第 ' + step + ' / 3 轮';
+    }
+    opEls.forEach(function(el, i){ el.classList.toggle('on', !done && i === step % 4); });
+    nextBtn.disabled = done;
+    nextBtn.textContent = done ? '已解完' : '解一轮';
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener('click', function(){
+      if (done) return;
+      state = round(state, step);
+      step++;
+      if (step === 3) done = true;
+      paintRound();
+    });
+    resetBtn.addEventListener('click', function(){
+      state = new Uint8Array(start); step = 0; done = false; paintRound();
+    });
+    paintRound();
+  }
+
+  /* ---------- 滚动入场 ---------- */
+  var items = document.querySelectorAll('[data-rise]');
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if ('IntersectionObserver' in window && !reduce) {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, {rootMargin:'0px 0px -12% 0px', threshold:0.12});
+    items.forEach(function(el){ io.observe(el); });
+  } else {
+    items.forEach(function(el){ el.classList.add('in'); });
+  }
+})();
+</script>
+</body>
+</html>

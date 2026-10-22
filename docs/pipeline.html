@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>它怎么工作 · AnimeStudio 说明书</title>
+<meta name="description" content="从双击一个 .bundle 到桌面出现一张 PNG，中间有七层：认文件、开锁、拆箱、读清单、造对象、串关系、写文件。逐层拆开讲。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-theme="paper" data-page="pipeline">
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <a class="mark" href="index.html">
+    <span class="mark-plate">AS</span>
+    <span>AnimeStudio<span class="mark-sub"> 说明书</span></span>
+  </a>
+  <button class="navtoggle" data-navtoggle aria-expanded="false">目录</button>
+  <nav class="topnav" data-topnav aria-label="主导航">
+    <a href="start.html">上手</a>
+    <a href="gui.html">界面</a>
+    <a href="pipeline.html" aria-current="page">原理</a>
+    <a href="games.html">游戏</a>
+    <a href="faq.html">排错</a>
+    <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+  </nav>
+</header>
+
+<div class="wrap shell">
+  <aside class="sidenav" aria-label="手册目录">
+    <div class="sidenav-group">
+      <p class="sidenav-title">开始</p>
+      <a href="index.html">封面</a>
+      <a href="start.html">五分钟上手</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">用</p>
+      <a href="gui.html">界面导览</a>
+      <a href="batch.html">批量与资产地图</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">懂</p>
+      <a href="pipeline.html" aria-current="page">它怎么工作</a>
+      <a href="games.html">游戏与它们的锁</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">其它</p>
+      <a href="faq.html">疑难解答</a>
+      <a href="dev.html">想改代码</a>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="pagehead">
+      <h1>它怎么工作</h1>
+      <p class="lead">从你双击一个 .bundle，到桌面出现一张 PNG，中间有七层。这一页把它们一层一层拆开，每一层都回答三个问题：它在做什么、它凭什么能做、它做砸了你会看到什么。</p>
+    </header>
+
+    <div class="prose">
+      <div class="toc">
+        <p>本页内容</p>
+        <a href="#layer-1">一、认：先弄清你手里是什么</a>
+        <a href="#layer-2">二、开锁：整文件这一层</a>
+        <a href="#layer-3">三、拆箱：容器这一层</a>
+        <a href="#layer-4">四、读清单：SerializedFile</a>
+        <a href="#layer-5">五、造对象</a>
+        <a href="#layer-6">六、串关系</a>
+        <a href="#layer-7">七、写文件</a>
+        <a href="#slow">为什么它慢，为什么它吃内存</a>
+        <a href="#fail">它会怎么失败</a>
+      </div>
+
+      <h2 id="layer-1">一、认：先弄清你手里是什么</h2>
+      <p>工具做的第一件事不是解密，而是看开头。它读文件最前面二十个字节，把里面的字符串读出来，比对几个固定的签名：<code>UnityFS</code>、<code>UnityWeb</code>、<code>UnityRaw</code>、<code>UnityArchive</code>、<code>UnityWebData1.0</code>、<code>blk</code>、<code>ENCR</code>。</p>
+      <p>对不上也不放弃。它接着按字节特征一路试下去：VFS 容器、gzip、brotli、未压缩的 .assets、zip、mhy 系列、Blb、HYG、Naraka、gunfire，最后兜底当成「裸资源文件」。这一步的结论只有一件事：这个文件属于十五种类型里的哪一种。</p>
+      <div class="callout">
+        <h3>为什么这一步重要</h3>
+        <p>后面的每一层都按类型分叉。类型认错，后面全部白做——而且不会报错，只会给你一堆看起来像数据的东西。</p>
+      </div>
+
+      <h2 id="layer-2">二、开锁：整文件这一层</h2>
+      <p>有些游戏不改包里面的结构，而是在外面又套了一层：换个假头、整体异或、按固定规则重排字节。这一层要处理的就是这些，它必须把整个文件读进内存，换出一个新的「阅读器」交给下一层。</p>
+      <p>这里有二十多个分支，一个游戏一个。偶像梦幻祭、闪耀暖暖、重返未来 1999、少女前线、世界计划、恋与深空、动物派对……各自一套写法。名字都在<a href="games.html">游戏与它们的锁</a>里。</p>
+      <p>同一层还干一件容易被忽略的事：<strong>判断这是不是一个「包里套包」的容器</strong>。它会读包头的长度字段，和文件的真实长度比一下。对不上，就说明这个文件里塞了不止一个包，于是标记成块文件，等下一层逐个拆。</p>
+      <div class="callout">
+        <h3>你会看到的证据</h3>
+        <p>星穹铁道的 <code>.block</code> 就是这个样子：一个文件里躺着几十上百个 ENCR 包，每个都得单独拆开。</p>
+      </div>
+
+      <h2 id="layer-3">三、拆箱：容器这一层</h2>
+      <p>到这里才真正开始拆包。一个 UnityFS 文件由三部分组成：头（版本与标志位）、块表（数据被切成几块、每块压缩后多大、解压后多大）、目录（里面每个文件的名字与偏移）。</p>
+      <p>块表本身也可能是压缩的，所以顺序是：先解块表，再按块表解数据。压缩方式就那么几种：</p>
+      <div class="table-wrap">
+        <table>
+          <caption>容器里能遇到的压缩方式，以及谁来解它</caption>
+          <thead>
+            <tr><th>压缩方式</th><th>谁来解</th><th>在哪见到</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>不压缩</td><td>直接读</td><td>少数小包</td></tr>
+            <tr><td>LZMA</td><td>内置的 7-Zip 解码器</td><td>老一点的包</td></tr>
+            <tr><td>LZ4 / LZ4HC</td><td>内置的 LZ4 解码器</td><td>绝大多数 UnityFS</td></tr>
+            <tr><td>Oodle（Kraken 等）</td><td>原生库 <code>AnimeStudio.Ooz.dll</code></td><td>星穹铁道、绝区零</td></tr>
+            <tr><td>非标准 LZ4 变体</td><td>专门的变体解码器</td><td>来自星尘、明日方舟</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>厂商的第二次手脚也发生在这一层：容器的头本身可能被改过（UnityCN 的密钥区块、mt19937 生成的异或垫），数据块也可能在压缩之前就先被处理过一次。所以「解压」和「解密」在这里是交替的，不是两步分开走。</p>
+      <p>拆完之后，包里的每个文件都被标好了偏移与长度。它不会真的把几十兆数据复制一份——小包直接在内存里开窗口，大包落到临时文件，切出来的每一段都是同一块内存的视图。</p>
+
+      <h2 id="layer-4">四、读清单：SerializedFile</h2>
+      <p>包里的 <code>.assets</code> 文件是真正装着好东西的地方。它的结构很像一本书：</p>
+      <div class="kv">
+        <div>
+          <dt>头</dt>
+          <dd>元数据多大、文件多大、格式版本、数据从第几个字节开始、字节序。</dd>
+        </div>
+        <div>
+          <dt>类型表</dt>
+          <dd>这个文件里出现过哪些类型，每个类型的编号是什么。</dd>
+        </div>
+        <div>
+          <dt>对象表</dt>
+          <dd>每个对象一条记录：类型、包内编号（pathID）、从第几个字节开始、多长。</dd>
+        </div>
+        <div>
+          <dt>脚本表与外部引用</dt>
+          <dd>MonoBehaviour 挂在哪个脚本上；这个文件还依赖哪些别的文件。</dd>
+        </div>
+      </div>
+      <p>还有一份叫 TypeTree 的东西：某些版本会把「每个类型有哪些字段、字段什么顺序」也写进文件。有它，工具就能把 MonoBehaviour 里那些看不懂的二进制还原成带键名的 JSON；没有它，就只能靠内置的类型定义去猜。</p>
+
+      <h2 id="layer-5">五、造对象</h2>
+      <p>清单读完了，接着按类型逐个造对象：贴图、精灵、网格、材质、音频、动画、字体、着色器、文本……三十多种。每一种都知道自己该怎么从那一段字节里读出字段。</p>
+      <p>这一步是整个流程里最慢的地方，原因很朴素：<strong>同一个文件的读取位置只有一份</strong>。每个对象都要先把读取位置挪到自己的起点，读完再挪回去。所以它没法并行，只能一个一个来。这就是为什么导出一个几万资产的游戏要等很久。</p>
+      <p>单个对象读失败不会中断整批：记一条日志，跳到下一个。</p>
+
+      <h2 id="layer-6">六、串关系</h2>
+      <p>对象造出来的时候彼此不认识。这一步把它们接起来：</p>
+      <ul>
+        <li>每个 <code>GameObject</code> 的组件槽位，回填成真正的对象引用。</li>
+        <li>精灵图集把散落的精灵收回自己名下。</li>
+        <li>绝区零这种把网格拆开存的游戏，还要按名字重新挂回去——这一步是启发式的，也是它导模型偶尔会缺件的原因。</li>
+      </ul>
+
+      <h2 id="layer-7">七、写文件</h2>
+      <p>最后一步最直白，但选择最多。你要决定两件事：<strong>导什么</strong>，和<strong>导成什么</strong>。</p>
+      <div class="kv">
+        <div>
+          <dt>导什么：全部 / 选中 / 过滤后</dt>
+          <dd>整包导出、只导你在列表里勾中的、或者只导当前过滤器命中的。</dd>
+        </div>
+        <div>
+          <dt>导成什么：转换 / 原始 / 字段 / JSON</dt>
+          <dd>转换是转成人能打开的文件（PNG、OBJ、WAV、.txt）；原始是把字节原样吐成 .dat；字段是把对象内容打成文本；JSON 是整个对象序列化。</dd>
+        </div>
+        <div>
+          <dt>放哪儿：按类型 / 按容器 / 按来源 / 平铺</dt>
+          <dd>四种目录排法。按容器最贴近游戏原本的组织方式，按来源最稳定但目录最深。</dd>
+        </div>
+      </div>
+      <p>重名的时候默认只写第一份，后面同名的跳过且不提示。想全都留下，得去开「允许重复」。</p>
+
+      <h2 id="slow">为什么它慢，为什么它吃内存</h2>
+      <p>三个原因叠在一起：</p>
+      <ol class="steps">
+        <li>
+          <h3>对象只能一个一个读</h3>
+          <p>共享一个读取位置，天然不能并行。这是设计约束，不是没优化。</p>
+        </li>
+        <li>
+          <h3>一个包解压后可能非常大</h3>
+          <p>解压结果超过 512 MB 就不再放内存，改用临时文件；整块内存还被所有切出来的片段共用，所以只要有一个片段活着，整块就回收不掉。</p>
+        </li>
+        <li>
+          <h3>它会在后台主动回收内存</h3>
+          <p>每处理完一个包强制回收一次，每三十来个文件再来一次。这是被大包撑爆过之后留下的补丁。</p>
+        </li>
+      </ol>
+
+      <h2 id="fail">它会怎么失败</h2>
+      <p>这个工具的默认姿态是「尽量别崩」：容器打不开就跳过这个文件，对象读不出来就跳过这个对象，最后你看到的是「少了一些东西」而不是一条明确的错误。</p>
+      <div class="callout callout-warn">
+        <h3>三种真的会停下来的情况</h3>
+        <p>版本信息缺失且无法推断时、块尺寸不合理时、块表越界时。除了这三种，其它问题大多会安静地降级——这也解释了为什么排错的第一条永远是「先确认游戏选对了」。</p>
+      </div>
+      <p>下一站：这些「锁」到底有哪些种类，以及你的游戏属于哪一类。</p>
+    </div>
+
+    <nav class="pager" aria-label="继续阅读">
+      <a href="games.html"><span>下一页</span><b>游戏与它们的锁</b></a>
+      <a href="start.html"><span>或者</span><b>五分钟上手</b></a>
+    </nav>
+  </main>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <div class="foot-cols">
+      <div>
+        <h3>手册</h3>
+        <a href="start.html">五分钟上手</a>
+        <a href="gui.html">界面导览</a>
+        <a href="batch.html">批量与资产地图</a>
+        <a href="pipeline.html">它怎么工作</a>
+      </div>
+      <div>
+        <h3>继续</h3>
+        <a href="games.html">游戏与它们的锁</a>
+        <a href="faq.html">疑难解答</a>
+        <a href="dev.html">想改代码</a>
+      </div>
+      <div>
+        <h3>源码与下载</h3>
+        <a href="https://github.com/Escartem/AnimeStudio">GitHub 仓库</a>
+        <a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 构建</a>
+        <a href="https://github.com/Escartem/AnimeStudio/wiki">官方 wiki</a>
+      </div>
+    </div>
+    <p class="foot-note">本手册依据仓库当前源码整理，行为以代码为准。AnimeStudio 是 Studio 与 AssetStudio 的衍生项目，作者 Escartem。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+    <p class="foot-word">AnimeStudio</p>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>组件样板 · AnimeStudio 说明书</title>
+<meta name="description" content="AnimeStudio 说明书的组件样板页：复制页头、目录栏、正文组件与页脚。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-theme="paper" data-page="template">
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <a class="mark" href="index.html">
+    <span class="mark-plate">AS</span>
+    <span>AnimeStudio<span class="mark-sub"> 说明书</span></span>
+  </a>
+  <button class="navtoggle" data-navtoggle aria-expanded="false">目录</button>
+  <nav class="topnav" data-topnav aria-label="主导航">
+    <a href="start.html">上手</a>
+    <a href="gui.html">界面</a>
+    <a href="pipeline.html">原理</a>
+    <a href="games.html">游戏</a>
+    <a href="faq.html">排错</a>
+    <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+  </nav>
+</header>
+
+<div class="wrap shell">
+  <aside class="sidenav" aria-label="手册目录">
+    <div class="sidenav-group">
+      <p class="sidenav-title">开始</p>
+      <a href="index.html">封面</a>
+      <a href="start.html">五分钟上手</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">用</p>
+      <a href="gui.html">界面导览</a>
+      <a href="batch.html">批量与资产地图</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">懂</p>
+      <a href="pipeline.html">它怎么工作</a>
+      <a href="games.html">游戏与它们的锁</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">其它</p>
+      <a href="faq.html">疑难解答</a>
+      <a href="dev.html">想改代码</a>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="pagehead">
+      <h1>组件样板</h1>
+      <p class="lead">这一页不是给读者看的，是给写页面的人抄的。所有类名都在 assets/site.css 里，不要新增内联样式。</p>
+      <div class="pagehead-extra">
+        <a class="btn" href="start.html">主要动作按钮</a>
+        <a class="btn btn-quiet" href="index.html">次要动作</a>
+      </div>
+    </header>
+
+    <div class="prose">
+
+      <h2 id="s1">正文与提示</h2>
+      <p>普通段落。中文正文 <strong>加粗用于关键结论</strong>，行内代码写成 <code>AnimeStudio.GUI.exe</code> 这样。段落宽度由容器控制，不要自己加宽度。</p>
+
+      <div class="callout">
+        <h3>提示</h3>
+        <p>用 <code>.callout</code> 装「值得单独说一句」的话：一个前提、一个例外、一个容易踩的坑。</p>
+      </div>
+
+      <div class="callout callout-warn">
+        <h3>警告</h3>
+        <p>用 <code>.callout-warn</code> 装「会出事」的话，例如它会写你的原始目录。每页最多两三处，多了就不算警告了。</p>
+      </div>
+
+      <h2 id="s2">步骤</h2>
+      <ol class="steps">
+        <li>
+          <h3>下载并解压</h3>
+          <p>步骤用真正的 <code>&lt;ol class="steps"&gt;</code>，序号由浏览器给。每一步先给动作，再给原因。</p>
+        </li>
+        <li>
+          <h3>选对游戏</h3>
+          <p>这一步最容易错，所以要解释为什么。</p>
+        </li>
+      </ol>
+
+      <h2 id="s3">表格</h2>
+      <div class="table-wrap">
+        <table>
+          <caption>表格用真实 <code>&lt;table&gt;</code>，可以带线。</caption>
+          <thead>
+            <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--game</code></td><td>必填</td><td>游戏条目名，如 <code>SR</code>。</td></tr>
+            <tr><td><code>--types</code></td><td>无</td><td>空格分隔，不要逗号。</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="s4">代码</h2>
+      <pre><code>AnimeStudio.CLI.exe "D:\Game\Bundles" "D:\Out" --game Normal --types Texture2D Sprite</code></pre>
+
+      <h2 id="s5">参数与数字</h2>
+      <dl class="kv">
+        <div>
+          <dt>改过名字的术语</dt>
+          <dd>用 <code>.kv</code> 做「词 → 解释」，比卡片轻。</dd>
+        </div>
+        <div>
+          <dt>第二个术语</dt>
+          <dd>每条之间只用一条细线分隔，不要外框。</dd>
+        </div>
+      </dl>
+
+      <div class="facts">
+        <div class="fact"><b>75</b><span>下拉里的游戏条目</span></div>
+        <div class="fact"><b>4</b><span>种导出格式</span></div>
+        <div class="fact"><b>3</b><span>层解密</span></div>
+      </div>
+
+      <h2 id="s6">界面碎片</h2>
+      <p>要展示界面时用下面这块。控件名、列名、数值必须来自真实代码，不要编。根元素带 <code>data-ui</code>，因为它是一块界面而不是装饰。</p>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-bar"><b>File</b><span>Options</span><span>Export</span><span>Filter Type</span><span>Misc</span><span>About</span></div>
+          <div class="ui-tabs">
+            <span class="ui-tab" aria-selected="false">Scene Hierarchy</span>
+            <span class="ui-tab" aria-selected="true">Asset List</span>
+            <span class="ui-tab" aria-selected="false">Asset Classes</span>
+          </div>
+          <div class="ui-body">
+            <div class="ui-cols"><span>Name</span><span>Container</span><span>Type</span><span>PathID</span><span>Size</span><span>SHA256</span></div>
+            <div class="ui-rowline"><span>Icon_Avatar</span><span>ui/icon</span><span>Texture2D</span><span>128</span><span>256×256</span><span>a41f…</span></div>
+            <div class="ui-rowline is-selected"><span>Icon_Item</span><span>ui/icon</span><span>Sprite</span><span>129</span><span>128×128</span><span>7b02…</span></div>
+            <div class="ui-rowline"><span>BGM_Main</span><span>audio</span><span>AudioClip</span><span>204</span><span>2.1 MB</span><span>c9ee…</span></div>
+            <div class="ui-foot"><span>3 项</span><span>已选 1 项</span></div>
+          </div>
+        </div>
+        <figcaption>图注写「这块界面在回答什么问题」，并说明它是按真实控件重画的。</figcaption>
+      </figure>
+
+      <h2 id="s7">图片</h2>
+      <figure class="plate">
+        <img src="assets/face-03.jpg" alt="项目横幅里的角色插画局部" width="420" height="560" loading="lazy">
+        <figcaption>图片一律放进 <code>figure.plate</code>，<code>alt</code> 必填，<code>width</code>/<code>height</code> 必填，非首屏加 <code>loading="lazy"</code>。</figcaption>
+      </figure>
+
+      <h2 id="s8">问答</h2>
+      <div class="faq">
+        <details>
+          <summary>问题写在这里，一句话</summary>
+          <div class="faq-body">
+            <p>先给结论，再说原因，最后给一句「你可以这样做」。</p>
+            <p>第二个段落可以讲例外情况。</p>
+          </div>
+        </details>
+        <details>
+          <summary>第二个问题</summary>
+          <div class="faq-body"><p>答案。</p></div>
+        </details>
+      </div>
+
+      <div class="toc">
+        <p>本页内容</p>
+        <a href="#s1">正文与提示</a>
+        <a href="#s2">步骤</a>
+        <a href="#s3">表格</a>
+      </div>
+    </div>
+
+    <nav class="pager" aria-label="继续阅读">
+      <a href="start.html"><span>下一页</span><b>五分钟上手</b></a>
+      <a href="pipeline.html"><span>或者</span><b>它怎么工作</b></a>
+    </nav>
+  </main>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p class="foot-word">AnimeStudio</p>
+    <div class="foot-cols">
+      <div>
+        <h3>手册</h3>
+        <a href="start.html">五分钟上手</a>
+        <a href="gui.html">界面导览</a>
+        <a href="batch.html">批量与资产地图</a>
+        <a href="pipeline.html">它怎么工作</a>
+      </div>
+      <div>
+        <h3>继续</h3>
+        <a href="games.html">游戏与它们的锁</a>
+        <a href="faq.html">疑难解答</a>
+        <a href="dev.html">想改代码</a>
+      </div>
+      <div>
+        <h3>源码与下载</h3>
+        <a href="https://github.com/Escartem/AnimeStudio">GitHub 仓库</a>
+        <a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 构建</a>
+        <a href="https://github.com/Escartem/AnimeStudio/wiki">官方 wiki</a>
+      </div>
+    </div>
+    <p class="foot-note">本手册依据仓库当前源码整理，行为以代码为准。AnimeStudio 是 Studio 与 AssetStudio 的衍生项目，作者 Escartem。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

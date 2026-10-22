@@ -1,0 +1,1080 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnimeStudio 技术报告 · 拆开一个能解 52 款游戏的包</title>
+<style>
+:root{
+  --bg:#ebe5e3;
+  --surface:#e1dad7;
+  --surface-2:#d5cdca;
+  --surface-3:#c8bfbc;
+  --ink:#2b2622;
+  --muted:#4f4844;
+  --accent:#0f7d45;
+  --accent-ink:#ffffff;
+  --field-dark:#2b2622;
+  --field-dark-ink:#ebe5e3;
+
+  --step-small:13px;
+  --step-body:16px;
+  --step-lead:21px;
+  --step-head:clamp(24px,2.1vw,30px);
+  --step-display:clamp(38px,6.4vw,104px);
+
+  --gap:6px;
+  --margin:clamp(20px,4vw,56px);
+  --ease:cubic-bezier(.16,.84,.3,1);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  margin:0;background:var(--bg);color:var(--ink);overflow-x:clip;
+  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
+  font-size:var(--step-body);line-height:1.75;
+  text-rendering:optimizeLegibility;
+}
+::selection{background:var(--accent);color:var(--accent-ink)}
+h1,h2,h3,h4,p,ul,ol,dl,figure{margin:0}
+h1,h2,h3,h4{font-weight:600;line-height:1.18;letter-spacing:-.01em}
+a{color:inherit}
+code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  font-size:13px;background:var(--surface-2);color:var(--ink);
+  padding:.12em .38em;border-radius:4px;white-space:nowrap;
+}
+strong{font-weight:600}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1220px;margin:0 auto;padding:0 var(--margin)}
+.band{padding:clamp(72px,9vw,132px) 0}
+.band + .band{padding-top:0}
+.stack{display:grid;gap:clamp(18px,2.4vw,30px);align-content:start}
+.measure{max-width:66ch}
+.note{font-size:var(--step-small);color:var(--muted);line-height:1.7}
+.note code{white-space:normal;word-break:break-word}
+
+/* ---------- hero ---------- */
+.hero{min-height:100svh;display:flex;flex-direction:column;padding-top:56px}
+.brandline{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.mark{display:flex;align-items:center;gap:10px;font-size:var(--step-small);color:var(--muted);white-space:nowrap}
+.mark svg{display:block;width:22px;height:22px}
+.toplink{font-size:var(--step-small);color:var(--muted);text-decoration:none}
+.toplink:hover{color:var(--ink)}
+.hero > .wrap{width:100%}
+.hero-grid{flex:1;display:grid;align-content:end;padding-bottom:clamp(30px,6vh,64px)}
+.hero-col{display:grid;gap:22px;max-width:940px}
+.hero h1{font-size:var(--step-display);line-height:1.1;letter-spacing:-.03em;max-width:11em}
+.hero .sub{max-width:40ch}
+.hero-actions{display:flex;align-items:center;gap:24px;flex-wrap:wrap;margin-top:6px}
+.btn{
+  display:inline-flex;align-items:center;gap:10px;
+  background:var(--accent);color:var(--accent-ink);
+  font-size:var(--step-body);font-weight:500;text-decoration:none;
+  padding:14px 24px;border-radius:4px;
+  transition:transform .18s var(--ease),background-color .18s var(--ease);
+}
+.btn:hover{transform:translateY(-2px);background:#0b6637}
+.btn:active{transform:translateY(0)}
+.arrow-link{font-size:var(--step-body);text-decoration:none;display:inline-flex;gap:8px;align-items:center}
+.arrow-link span{transition:transform .18s var(--ease)}
+.arrow-link:hover span{transform:translateX(4px)}
+
+/* peeking fragment: real container bytes */
+.peek{background:var(--surface)}
+.peek-inner{padding-top:20px}
+.peek-head{display:flex;justify-content:space-between;gap:16px;align-items:baseline;margin-bottom:12px;font-size:var(--step-small);color:var(--muted)}
+.byteview{position:relative;height:112px;overflow:hidden}
+.bytesheet{
+  position:absolute;inset:0;opacity:0;display:grid;gap:var(--gap);
+  grid-template-columns:repeat(16,minmax(0,1fr));align-content:start;
+  transition:opacity 1.4s var(--ease);
+}
+.bytesheet.on{opacity:1}
+.bytesheet .cell{
+  height:22px;background:var(--surface-2);font-size:var(--step-small);line-height:22px;
+  text-align:center;color:var(--muted);border-radius:2px;overflow:hidden;
+}
+.bytesheet .cell.hot{background:var(--accent);color:var(--accent-ink)}
+.bytesheet .cell.warm{background:var(--surface-3);color:var(--ink)}
+.bytesheet .cell.blank{background:rgba(43,38,34,.055)}
+.bytesheet-cap{display:flex;justify-content:space-between;gap:16px;font-size:var(--step-small);color:var(--muted);padding:12px 0 18px}
+
+/* ---------- statement ---------- */
+.statement{font-size:var(--step-head);line-height:1.45;letter-spacing:-.01em;max-width:30ch;font-weight:500}
+
+/* ---------- section head ---------- */
+.head{display:grid;gap:14px;margin-bottom:clamp(26px,3.4vw,44px)}
+.head h2{font-size:var(--step-head);max-width:26ch}
+.head p{max-width:52ch}
+
+/* ---------- stats (unboxed) ---------- */
+.statline{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:clamp(20px,3vw,36px);margin-top:clamp(40px,6vw,72px)}
+.stat b{display:block;font-size:34px;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:var(--step-small);color:var(--muted);margin-top:6px;line-height:1.5}
+
+/* ---------- layers ---------- */
+.surfacecard{background:var(--surface);border-radius:6px;padding:clamp(10px,1.4vw,16px)}
+.layers{display:grid;gap:var(--gap)}
+.layer{
+  display:grid;grid-template-columns:minmax(0,220px) minmax(0,1fr);
+  gap:clamp(14px,2vw,28px);align-items:start;
+  padding:clamp(14px,1.8vw,20px);border-radius:3px;
+  transition:background-color .2s var(--ease);
+}
+.layer:hover{background:var(--surface-2)}
+.layer-name{display:grid;gap:2px}
+.layer-name b{font-size:var(--step-lead);font-weight:600;letter-spacing:-.01em}
+.layer-name span{font-size:var(--step-small);color:var(--muted)}
+.layer-body{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.chip{background:var(--bg);border-radius:3px;padding:4px 9px;font-size:var(--step-small);color:var(--ink)}
+.layer.dark{background:var(--field-dark);color:var(--field-dark-ink)}
+.layer.dark .layer-name span{color:#c9c1bd}
+.layer.dark .chip{background:#3b3430;color:#efe9e6}
+
+/* ---------- pipeline ---------- */
+.rail{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--gap);margin-bottom:var(--gap)}
+.hop{
+  appearance:none;border:0;cursor:pointer;text-align:left;
+  background:var(--surface);color:var(--muted);
+  padding:12px 10px 14px;border-radius:3px;
+  display:grid;gap:6px;align-content:start;
+  transition:background-color .2s var(--ease),color .2s var(--ease),transform .2s var(--ease);
+}
+.hop:hover{transform:translateY(-2px);color:var(--ink)}
+.hop .n{font-size:var(--step-small);color:var(--muted)}
+.hop .t{font-size:var(--step-body);font-weight:600;color:var(--ink);line-height:1.3}
+.hop[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+.hop[aria-selected="true"] .t,.hop[aria-selected="true"] .n{color:var(--accent-ink)}
+.panels{background:var(--surface);border-radius:6px;padding:clamp(20px,2.6vw,32px)}
+.panel{display:grid;gap:16px}
+.panel[hidden]{display:none}
+.panel-grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(18px,3vw,40px)}
+.panel h3{font-size:var(--step-lead);max-width:26ch}
+.panel .anchor{font-size:var(--step-small);color:var(--muted)}
+.facts{display:grid;gap:0;margin:0}
+.facts div{display:grid;grid-template-columns:76px minmax(0,1fr);gap:12px;padding:8px 0;font-size:var(--step-body);line-height:1.6}
+.facts dt{color:var(--muted);font-size:var(--step-small)}
+.facts dd{margin:0}
+.pit{background:var(--bg);border-radius:4px;padding:14px 16px;font-size:var(--step-body);line-height:1.65}
+
+/* ---------- interface fragments (data-ui) ---------- */
+.shells{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(18px,3vw,36px);align-items:start}
+.shell{display:grid;gap:12px}
+.shell > h3{font-size:var(--step-lead)}
+.shell p{font-size:var(--step-body);line-height:1.7;color:var(--muted)}
+.ui{
+  background:var(--surface);border-radius:5px;padding:14px;
+  display:grid;gap:8px;font-size:var(--step-body);line-height:1.45;
+}
+.ui-head{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:var(--step-small);color:var(--muted);padding-bottom:2px}
+.ui-btn{background:var(--bg);color:var(--ink);padding:5px 10px;border-radius:3px;font-size:var(--step-small)}
+.ui-field{background:var(--bg);border-radius:3px;padding:7px 10px;color:var(--ink);font-size:var(--step-body)}
+.ui-field.sel{background:var(--accent);color:var(--accent-ink)}
+.ui-list{display:grid;gap:2px}
+.ui-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:10px;padding:5px 8px;background:var(--bg);border-radius:2px;align-items:baseline}
+.ui-row.sel{background:var(--accent);color:var(--accent-ink)}
+.ui-row .ty{color:var(--muted);font-size:var(--step-small)}
+.ui-row.sel .ty,.ui-row.sel .ct{color:#ffffff}
+.ui-row .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ui-row .ct{color:var(--muted);font-size:var(--step-small)}
+pre.ui-cli{background:var(--field-dark);color:#efe9e6;border-radius:5px;padding:16px;margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:var(--step-small);line-height:1.8;white-space:pre-wrap;overflow-x:auto}
+.ui-cli .p{color:#8fded0}
+.ui-cli .c{color:#c9c1bd}
+.ui-view{height:96px;display:grid;place-items:center;color:var(--muted);background:var(--surface-2);border-radius:3px}
+
+/* ---------- table ---------- */
+.tbl{width:100%;border-collapse:collapse;font-size:var(--step-body)}
+.tbl caption{text-align:left;font-size:var(--step-small);color:var(--muted);padding-bottom:12px}
+.tbl th,.tbl td{text-align:left;padding:12px 14px;vertical-align:top;line-height:1.55}
+.tbl thead th{font-size:var(--step-small);color:var(--ink);font-weight:500;background:var(--surface-2)}
+.tbl tbody tr:nth-child(odd){background:var(--surface)}
+.tbl td code{background:var(--surface-2)}
+.tbl tbody tr:hover{background:var(--surface-2)}
+.tbl .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.tbl .sev{white-space:nowrap;font-size:var(--step-small)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px;vertical-align:1px}
+.dot.hi{background:var(--accent)}
+.dot.mid{background:#8a6a25}
+.dot.lo{background:#7b736e}
+.scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+/* ---------- crypto ---------- */
+.cryptolayers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gap);margin-bottom:clamp(22px,3vw,36px)}
+.clayer{background:var(--surface);border-radius:4px;padding:clamp(16px,2vw,22px);display:grid;gap:10px;align-content:start}
+.clayer:nth-child(2){background:var(--surface-2)}
+.clayer:nth-child(3){background:var(--surface-2)}
+.clayer b{font-size:var(--step-lead);font-weight:600}
+.clayer .where{font-size:var(--step-small);color:var(--muted)}
+.clayer p{font-size:var(--step-body);line-height:1.6}
+.tagline{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto}
+.tag{font-size:var(--step-small);background:var(--bg);padding:3px 8px;border-radius:3px;color:var(--ink)}
+
+/* ---------- slider figure ---------- */
+.figure-field{background:var(--field-dark);color:var(--field-dark-ink);border-radius:6px;padding:clamp(24px,4vw,48px)}
+.figure-field h3{font-size:var(--step-head);max-width:20ch}
+.figure-field .q{color:#c9c1bd;font-size:var(--step-body);margin-top:12px;max-width:56ch}
+.slider-wrap{margin-top:clamp(24px,3vw,40px);max-width:460px}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:3px;
+  background:#4a423d;outline-offset:8px;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:26px;height:26px;border-radius:50%;
+  background:var(--accent);cursor:pointer;border:0;
+  transition:transform .15s var(--ease);
+}
+input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.08)}
+input[type=range]::-moz-range-thumb{width:26px;height:26px;border-radius:50%;background:var(--accent);cursor:pointer;border:0}
+.readout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(18px,3vw,40px);align-items:end;margin-top:clamp(28px,4vw,56px)}
+.bigfig{font-size:clamp(56px,9vw,120px);font-weight:600;line-height:.86;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.bigfig small{font-size:21px;font-weight:500;letter-spacing:0;margin-left:.25em;vertical-align:.7em;color:#c9c1bd}
+.branch{font-size:var(--step-body);line-height:1.65;max-width:34ch}
+.branch .k{color:#8fded0;font-weight:600}
+.branch code{background:#3b3430;color:#efe9e6}
+
+/* ---------- rows ---------- */
+.rows{display:grid;gap:0}
+.row{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:baseline;
+  padding:14px 2px;transition:background-color .18s var(--ease),padding-left .18s var(--ease);
+}
+.row:hover{background:var(--surface);padding-left:12px}
+.row .rt{display:grid;gap:3px}
+.row .rt b{font-size:var(--step-body);font-weight:600}
+.row .rt span{font-size:var(--step-small);color:var(--muted);line-height:1.6}
+.row .rv{font-size:var(--step-small);color:var(--muted);white-space:nowrap}
+.grouphead{font-size:var(--step-small);color:var(--muted);margin:28px 0 6px}
+.rows > .grouphead:first-child{margin-top:0}
+
+/* ---------- phases ---------- */
+.phases{display:grid;gap:var(--gap);background:var(--surface);border-radius:6px;padding:clamp(10px,1.4vw,16px)}
+.phase{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr) minmax(0,150px);gap:clamp(14px,2vw,26px);align-items:start;padding:clamp(16px,2vw,22px);border-radius:3px}
+.phase:hover{background:var(--surface-2)}
+.phase .ph{font-size:var(--step-lead);font-weight:600}
+.phase .ph small{display:block;font-size:var(--step-small);font-weight:400;color:var(--muted);margin-top:4px}
+.phase ul{margin:0;padding-left:18px;font-size:var(--step-body);line-height:1.75;display:grid;gap:4px}
+.phase .eff{font-size:var(--step-small);color:var(--muted);text-align:right}
+
+/* ---------- callout ---------- */
+.callout{background:var(--surface-2);border-radius:6px;padding:clamp(22px,3vw,34px);display:grid;gap:14px}
+.callout h3{font-size:var(--step-lead)}
+.callout p{font-size:var(--step-body);line-height:1.75;max-width:72ch}
+
+/* ---------- footer ---------- */
+footer{padding:0 var(--margin) var(--margin)}
+.foot{max-width:1220px;margin:0 auto;display:grid;gap:var(--gap)}
+.foot-band{background:var(--field-dark);color:var(--field-dark-ink);border-radius:6px;padding:clamp(24px,3vw,40px);display:grid;gap:clamp(24px,3vw,40px)}
+.foot-cols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.8fr) minmax(0,.9fr);gap:clamp(20px,3vw,40px);align-items:start}
+.foot-band h3{font-size:var(--step-lead)}
+.foot-band p,.foot-band li{font-size:var(--step-body);line-height:1.75;color:#c9c1bd}
+.foot-band ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.foot-band a{text-decoration:none;color:var(--field-dark-ink)}
+.foot-band a:hover{color:#8fded0}
+.wordmark{font-size:clamp(34px,5.6vw,76px);font-weight:600;letter-spacing:-.03em;line-height:1;display:block;overflow-wrap:anywhere}
+.foot-cta{background:var(--accent);color:var(--accent-ink);border-radius:6px;padding:clamp(22px,3vw,32px);display:grid;gap:12px}
+.foot-cta a{text-decoration:none;color:inherit;display:grid;gap:8px}
+.foot-cta h3{font-size:var(--step-lead)}
+.foot-cta p{font-size:var(--step-body);line-height:1.6}
+.foot-cta .go{font-size:var(--step-lead);margin-top:6px}
+
+/* ---------- motion ---------- */
+.js [data-rise]{opacity:0;transform:translateY(20px);transition:opacity .7s var(--ease),transform .7s var(--ease);transition-delay:calc(var(--i,0) * 70ms)}
+.js [data-rise].in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  .js [data-rise]{opacity:1;transform:none}
+  html{scroll-behavior:auto}
+}
+
+/* ---------- responsive ---------- */
+@media (max-width:1080px){
+  .panel-grid{grid-template-columns:1fr}
+  .cryptolayers{grid-template-columns:1fr}
+  .shells{grid-template-columns:1fr}
+  .phase{grid-template-columns:1fr}
+  .phase .eff{text-align:left}
+  .readout{grid-template-columns:1fr;align-items:start}
+  .foot-cols{grid-template-columns:1fr}
+}
+@media (max-width:760px){
+  :root{--step-body:16px}
+  .hero{padding-top:32px;min-height:auto}
+  .hero-grid{align-content:start;padding-top:clamp(48px,12vh,88px);padding-bottom:32px}
+  .hero h1{max-width:none}
+  .rail{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .layer{grid-template-columns:1fr;gap:8px}
+  .row{grid-template-columns:1fr}
+  .row .rv{order:-1}
+  .bytesheet{grid-template-columns:repeat(8,minmax(0,1fr))}
+  .byteview{height:136px}
+  .facts div{grid-template-columns:1fr;gap:2px}
+  .scroll-x{overflow:visible}
+  .tbl thead{display:none}
+  .tbl,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+  .tbl tbody tr{background:var(--surface);border-radius:4px;padding:12px 14px;margin-bottom:var(--gap)}
+  .tbl tbody tr:nth-child(odd){background:var(--surface)}
+  .tbl td{padding:3px 0}
+  .tbl td[data-l]::before{content:attr(data-l);display:block;font-size:var(--step-small);color:var(--muted)}
+  .tbl caption{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="wrap brandline">
+    <div class="mark">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="9" height="9" rx="1.5" fill="#2b2622"/><rect x="13" y="2" width="9" height="9" rx="1.5" fill="#0f7d45"/><rect x="2" y="13" width="9" height="9" rx="1.5" fill="#c8bfbc"/><rect x="13" y="13" width="9" height="9" rx="1.5" fill="#e1dad7"/></svg>
+      <span>AnimeStudio 解剖报告</span>
+    </div>
+    <a class="toplink" href="https://github.com/Escartem/AnimeStudio" target="_blank" rel="noopener">github.com/Escartem/AnimeStudio</a>
+  </div>
+
+  <div class="wrap hero-grid">
+    <div class="hero-col">
+      <h1>拆开一个能解<br>52 款游戏的包</h1>
+      <p class="sub">一个 Unity 资产提取器，能开 52 款游戏的包，包括米哈游全线。下面是它的六层结构、七跳管线、加密矩阵和改造顺序。</p>
+      <p class="note">结论来自静态阅读 1533 个文件、15 个项目、6.4 万行 C# 与 43 万行 C/C++。仓库没有被改动，也没有被编译。</p>
+      <div class="hero-actions">
+        <a class="btn" href="#pipeline">走一遍 7 跳管线 <span aria-hidden="true">→</span></a>
+        <a class="arrow-link" href="#roadmap">直接看改造清单 <span aria-hidden="true">→</span></a>
+      </div>
+    </div>
+  </div>
+
+  <div class="peek" data-ui>
+    <div class="wrap peek-inner">
+      <div class="peek-head">
+        <span>文件开头 64 字节：签名区高亮，其余是按 16 字节对齐的空块</span>
+        <span id="peekKind">UnityFS</span>
+      </div>
+      <div class="byteview" aria-hidden="true">
+        <div class="bytesheet on" data-sheet="0"></div>
+        <div class="bytesheet" data-sheet="1"></div>
+        <div class="bytesheet" data-sheet="2"></div>
+        <div class="bytesheet" data-sheet="3"></div>
+      </div>
+      <div class="bytesheet-cap"><span id="peekNote">FileReader.cs:47 · 7 字节签名</span><span>0x00</span></div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ STATEMENT ============ -->
+<section class="band wrap" id="thesis">
+  <p class="statement" data-rise>难度不在解密。难的是让 1052 行的索引器在 512MB 的边界上活下来。</p>
+  <div class="statline">
+    <div class="stat" data-rise style="--i:0"><b>1 533</b><span>仓库文件总数，54MB</span></div>
+    <div class="stat" data-rise style="--i:1"><b>52</b><span>注册在册的游戏条目，78 个枚举值</span></div>
+    <div class="stat" data-rise style="--i:2"><b>15</b><span>slnx 项目，其中 8 个原生 vcxproj</span></div>
+    <div class="stat" data-rise style="--i:3"><b>306</b><span>次提交，18 位贡献者</span></div>
+    <div class="stat" data-rise style="--i:4"><b>1 288</b><span>GitHub star，213 个 fork</span></div>
+  </div>
+</section>
+
+<!-- ============ LAYERS ============ -->
+<section class="band wrap" id="layers">
+  <div class="head">
+    <h2>六层，被一个 switch 串起来</h2>
+    <p>从上到下：两个壳、一个编排器、一组容器、一个序列化器、一份密码表，最后是四个原生解码器。每一层的边界都写在同一份代码里，而不是接口里。</p>
+  </div>
+  <div class="surfacecard">
+    <div class="layers">
+      <div class="layer" data-rise>
+        <div class="layer-name"><b>外壳</b><span>两个入口，两份导出</span></div>
+        <div class="layer-body">
+          <span class="chip">AnimeStudio.GUI · WinForms + OpenTK</span>
+          <span class="chip">AnimeStudio.CLI · System.CommandLine</span>
+          <span class="chip">Exporter.cs 各一份</span>
+          <span class="chip">MainForm 141KB</span>
+        </div>
+      </div>
+      <div class="layer" data-rise>
+        <div class="layer-name"><b>编排</b><span>AnimeStudio 核心库</span></div>
+        <div class="layer-body">
+          <span class="chip">AssetsManager 1126 行</span>
+          <span class="chip">AssetsHelper 1052 行</span>
+          <span class="chip">ImportHelper 1129 行</span>
+          <span class="chip">GameManager 361 行</span>
+          <span class="chip">UnityCNManager 107 行</span>
+        </div>
+      </div>
+      <div class="layer" data-rise>
+        <div class="layer-name"><b>容器</b><span>七种包，一个 dynamic 契约</span></div>
+        <div class="layer-body">
+          <span class="chip">BundleFile 922 行</span>
+          <span class="chip">MhyFile</span><span class="chip">BlbFile</span><span class="chip">HygFile</span><span class="chip">VFSFile</span><span class="chip">WebFile</span><span class="chip">AFKJourneyUtils 604 行</span>
+        </div>
+      </div>
+      <div class="layer" data-rise>
+        <div class="layer-name"><b>序列化</b><span>22 个格式版本，两条 TypeTree 读法</span></div>
+        <div class="layer-body">
+          <span class="chip">SerializedFile 431 行</span>
+          <span class="chip">TypeTreeHelper 340 行</span>
+          <span class="chip">ClassIDType 540 个类型</span>
+          <span class="chip">ObjectReader 110 行</span>
+          <span class="chip">PPtr 引用解析</span>
+        </div>
+      </div>
+      <div class="layer dark" data-rise>
+        <div class="layer-name"><b>密码</b><span>14 个文件，三层分工</span></div>
+        <div class="layer-body">
+          <span class="chip">CryptoHelper 常量总仓</span>
+          <span class="chip">UnityCN</span><span class="chip">Mr0kUtils</span><span class="chip">BlkUtils</span><span class="chip">BlbUtils</span><span class="chip">NetEaseUtils</span><span class="chip">FairGuardUtils</span><span class="chip">VFSUtils 606 行</span>
+        </div>
+      </div>
+      <div class="layer" data-rise>
+        <div class="layer-name"><b>原生</b><span>不进解决方案构建，预编译进 git</span></div>
+        <div class="layer-body">
+          <span class="chip">AnimeStudio.Ooz · Oodle</span>
+          <span class="chip">ACL × 5 版本</span>
+          <span class="chip">HLSLDecompiler</span>
+          <span class="chip">FBXNative</span>
+          <span class="chip">Utility · FMOD / CSspv / CecilTools</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PIPELINE ============ -->
+<section class="band wrap" id="pipeline">
+  <div class="head">
+    <h2>七个跳点，每一跳都有名字</h2>
+    <p>点任意一跳，看它读什么、写什么、把什么交给了下一跳。每一条都给了可以直接跳转的 file:line。</p>
+  </div>
+
+  <div class="rail" role="tablist" aria-label="管线跳点">
+    <button class="hop" role="tab" aria-selected="true" data-hop="0"><span class="n">1</span><span class="t">嗅探</span></button>
+    <button class="hop" role="tab" aria-selected="false" data-hop="1"><span class="n">2</span><span class="t">外层解密</span></button>
+    <button class="hop" role="tab" aria-selected="false" data-hop="2"><span class="n">3</span><span class="t">容器</span></button>
+    <button class="hop" role="tab" aria-selected="false" data-hop="3"><span class="n">4</span><span class="t">块解压</span></button>
+    <button class="hop" role="tab" aria-selected="false" data-hop="4"><span class="n">5</span><span class="t">序列化</span></button>
+    <button class="hop" role="tab" aria-selected="false" data-hop="5"><span class="n">6</span><span class="t">对象</span></button>
+    <button class="hop" role="tab" aria-selected="false" data-hop="6"><span class="n">7</span><span class="t">导出</span></button>
+  </div>
+
+  <div class="panels">
+    <div class="panel" data-panel="0">
+      <div class="panel-grid">
+        <div class="stack">
+          <h3>先用 20 个字节认脸，认不出再逐字节试</h3>
+          <p>构造 <code>FileReader</code> 时就完成嗅探：先读 20 字节的签名字符串匹配 UnityFS、UnityWeb、UnityRaw、UnityArchive、UnityWebData1.0、blk、ENCR，不中就走字节签名级联，从 VFS、gzip、brotli 一路试到 mhy0、Blb、HYG、Naraka，最后兜底成 ResourceFile。</p>
+          <dl class="facts">
+            <div><dt>输入</dt><dd>磁盘上的一个路径</dd></div>
+            <div><dt>输出</dt><dd><code>FileType</code>，共 15 种容器类型</dd></div>
+            <div><dt>判据</dt><dd>字符串签名 + 六组字节特征 + <code>m_FileSize == stream.Length</code></dd></div>
+          </dl>
+        </div>
+        <div class="stack">
+          <div class="pit">坑：<code>FileReader.cs:37</code> 的级联顺序是有意义的。把 gzip 的检查放到 SerializedFile 前面，所有未压缩的 <code>.assets</code> 都会被当成 gzip 喂给解压器。</div>
+          <p class="anchor">锚点：<code>AnimeStudio/FileReader.cs:37</code> · CheckFileType</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="1" hidden>
+      <div class="panel-grid">
+        <div class="stack">
+          <h3>整文件解密和容器识别，挤在同一个函数里</h3>
+          <p><code>PreProcessing</code> 做两件事。一是 <code>switch (game.Type)</code> 分发 21 个厂商整文件解密器；二是读出头里的 <code>size</code> 字段，一旦发现它不等于文件实际长度，就把这个文件降级成 <code>BlockFile</code>。星穹铁道的 <code>.block</code> 里塞着上百个 ENCR，就是在这里被认出来的。</p>
+          <dl class="facts">
+            <div><dt>输入</dt><dd>一个已嗅探的 <code>FileReader</code></dd></div>
+            <div><dt>输出</dt><dd>另一个 <code>FileReader</code>，新 stream，旧的要自己 Dispose</dd></div>
+            <div><dt>规模</dt><dd>17 个 Decrypt + 2 个 Parse + 2 个 Decompress</dd></div>
+          </dl>
+        </div>
+        <div class="stack">
+          <div class="pit">坑：这一层必须整文件读进内存。想让大包流式处理，改这里没有用，得把 L1 拆成按块的范围解密。</div>
+          <p class="anchor">锚点：<code>AnimeStudio/FileReader.cs:183</code> · PreProcessing</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="2" hidden>
+      <div class="panel-grid">
+        <div class="stack">
+          <h3>七路容器，靠两个成员名接头</h3>
+          <p><code>LoadGameBlockFile</code> 一个 switch 覆盖 UnityFS、ENCR、blk、mhy、Blb、HYG、VFS、lpak 八种形态。所有容器对象最后都被 <code>dynamic</code> 消费，只要求暴露两个成员：<code>m_Header</code> 和 <code>fileList</code>。成员名拼错，编译期不会报错，运行时才炸。</p>
+          <dl class="facts">
+            <div><dt>输入</dt><dd>已解密的 <code>FileReader</code></dd></div>
+            <div><dt>输出</dt><dd><code>List&lt;StreamFile&gt;</code>，AssetBundle 里每个节点一份</dd></div>
+            <div><dt>关键</dt><dd>UnityCN 的头解密按 Unity 版本切换 flag 掩码，2020、2021、2022 三套</dd></div>
+          </dl>
+        </div>
+        <div class="stack">
+          <div class="pit">坑：这是全库唯一的容器契约，也是唯一的隐式契约。想加新容器，照抄 <code>m_Header</code> 加 <code>fileList</code> 的形状，别自作聪明抽接口。</div>
+          <p class="anchor">锚点：<code>AnimeStudio/AssetsManager.cs:660</code> · <code>AnimeStudio/BundleFile.cs:124</code></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="3" hidden>
+      <div class="panel-grid">
+        <div class="stack">
+          <h3>六个厂商的判断，是一条顺序 if 链</h3>
+          <p><code>ReadBlocks</code> 里逐块解压，先过 NetEase 的 LZMA 首块，再过 Oodle 家族，再在 LZ4 家族里塞 WMV 的首块异或，然后依次尝试 mr0k、UnityCN、NetEase、FairGuard、OPFP。UnityCN 的判定就是块头里那个 <code>0x100</code> 位。</p>
+          <dl class="facts">
+            <div><dt>输入</dt><dd><code>StorageBlock[]</code>，每块带压缩类型与 flag</dd></div>
+            <div><dt>输出</dt><dd>解压后的共享缓冲，或一个 <code>path.temp</code> 临时文件</dd></div>
+            <div><dt>阈值</dt><dd>总解压量不超过 512MB 走内存，否则落盘</dd></div>
+          </dl>
+        </div>
+        <div class="stack">
+          <div class="pit">坑：这六个判断是顺序 <code>if</code> 而不是 <code>else if</code>。当前游戏矩阵下它们互斥，但新增一个厂商时，一个包同时命中两条就是叠加解密，症状是「解出来还是乱码，但前 16 字节正确」。</div>
+          <p class="anchor">锚点：<code>AnimeStudio/BundleFile.cs:590</code> · ReadBlocks</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="4" hidden>
+      <div class="panel-grid">
+        <div class="stack">
+          <h3>一个构造函数，22 个版本分支</h3>
+          <p>头、端序、64 位偏移、平台回落、类型表、对象表、脚本表、外部文件表，全在 <code>SerializedFile</code> 的构造函数里按版本号顺序读。TypeTree 有两条读法：新版本用定长节点加字符串缓冲，旧版本递归下降。米系游戏还多一层 classID 反混淆。</p>
+          <dl class="facts">
+            <div><dt>输入</dt><dd>CAB 里切出来的一个 <code>StreamFile</code></dd></div>
+            <div><dt>输出</dt><dd><code>m_Objects</code> 对象表加 <code>m_Externals</code> 跨文件引用表</dd></div>
+            <div><dt>版本</dt><dd>1 到 22，<code>RefactoredClassId=16</code>、<code>LargeFilesSupport=22</code></dd></div>
+          </dl>
+        </div>
+        <div class="stack">
+          <div class="pit">坑：版本被 strip 掉又没显式指定，这里直接抛异常。两个补丁点分别是 Azur Promilia CBT2 的硬编码版本号，和 AFK Journey 从 <code>globalgamemanagers</code> 反查。</div>
+          <p class="anchor">锚点：<code>AnimeStudio/SerializedFile.cs:37</code></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="5" hidden>
+      <div class="panel-grid">
+        <div class="stack">
+          <h3>30 个具名类型，其余全是兜底</h3>
+          <p>每个对象表条目造一个 <code>ObjectReader</code>，按 classID 分发到 30 个具名类，认不出的落到基类 <code>Object</code>，靠 TypeTree 现场反射读字段。对象解析只能串行：所有 reader 共用同一个 <code>BaseStream</code>，位置是共享状态。</p>
+          <dl class="facts">
+            <div><dt>输入</dt><dd><code>ObjectInfo</code>：byteStart、byteSize、classID、pathID</dd></div>
+            <div><dt>输出</dt><dd><code>Object</code> 实例，挂回 <code>SerializedFile.ObjectsDic</code></dd></div>
+            <div><dt>失败</dt><dd>逐对象 try/catch，只记日志，不中断</dd></div>
+          </dl>
+        </div>
+        <div class="stack">
+          <div class="pit">坑：想并行读对象，别在 <code>ReadAssets</code> 上加 <code>Parallel.For</code>。要么每个对象开一次 <code>File.Open</code> 配 <code>BoundedStream</code>，要么做 per-thread reader 池。</div>
+          <p class="anchor">锚点：<code>AnimeStudio/ObjectReader.cs:21</code> · <code>AnimeStudio/Classes/Object.cs:32</code></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" data-panel="6" hidden>
+      <div class="panel-grid">
+        <div class="stack">
+          <h3>导出不在核心库里</h3>
+          <p>核心库只负责把对象读出来。真正的导出分发在 GUI 的 <code>Exporter.ExportConvertFile</code>，CLI 有一份复制。四种导出模式：Convert、Raw、Dump、JSON；目录布局按 ByType、ByContainer、BySource 三种分组算出来。</p>
+          <dl class="facts">
+            <div><dt>输入</dt><dd><code>List&lt;AssetItem&gt;</code>，每条持有一个 <code>Object</code></dd></div>
+            <div><dt>输出</dt><dd>PNG、WAV、FBX、OBJ、GLTF、TXT、JSON</dd></div>
+            <div><dt>代价</dt><dd>两份实现已经开始漂移，这是二次开发第一个要合并的地方</dd></div>
+          </dl>
+        </div>
+        <div class="stack">
+          <div class="pit">坑：想把核心库做成 headless，第一件事就是把 <code>Exporter.cs</code> 的 switch 从 GUI 移到 <code>AnimeStudio.Utility</code>，否则 CLI 和 GUI 会继续各改各的。</div>
+          <p class="anchor">锚点：<code>AnimeStudio.GUI/Exporter.cs:646</code> · <code>AnimeStudio.GUI/Studio.cs:667</code></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SHELLS ============ -->
+<section class="band wrap" id="shells">
+  <div class="head">
+    <h2>两个壳，86% 的代码是复制粘贴</h2>
+    <p>GUI 与 CLI 不共享任何应用层代码，只共用 core 和 Utility 两个库。实测非空行交集：Exporter.cs 在 GUI 里 705 行、CLI 里 622 行，其中 498 行逐字相同；Studio.cs 是 1108 行对 528 行，311 行相同。复制之后各自演化，已经有 12 处行为分叉。</p>
+  </div>
+
+  <div class="shells">
+    <div class="shell" data-rise>
+      <h3>游戏选择器读的是同一张注册表</h3>
+      <p>52 个条目按 Hoyo、Unity、Other、Hidden 四类分组。UnityCN 那一组的名称和密钥来自 CNKeys.json，编辑后可以热重载。</p>
+      <div class="ui" data-ui>
+        <div class="ui-head"><span>Game</span><span class="ui-btn">Reload</span></div>
+        <div class="ui-field">Hoyo · Genshin Impact — Live</div>
+        <div class="ui-field sel">Hoyo · Star Rail — Live</div>
+        <div class="ui-field">Hoyo · Zenless Zone Zero — Live</div>
+        <div class="ui-field">UnityCN · Punishing Gray Raven — Global/Korea</div>
+        <div class="ui-field">Unity · Normal (unencrypted)</div>
+      </div>
+    </div>
+
+    <div class="shell" data-rise style="--i:1">
+      <h3>资产列表的三列就是全部元数据</h3>
+      <p>类型、名称、容器路径。类型取自 540 个 ClassID，容器路径决定导出时的目录布局。</p>
+      <div class="ui" data-ui>
+        <div class="ui-head"><span>Assets · 12 480 项</span><span class="ui-btn">Export</span></div>
+        <div class="ui-list">
+          <div class="ui-row sel"><span class="ty">Texture2D</span><span class="nm">UI_AvatarIcon_PlayerBoy</span><span class="ct">UI/Icon</span></div>
+          <div class="ui-row"><span class="ty">Mesh</span><span class="nm">Avatar_Boy_Body</span><span class="ct">Avatar</span></div>
+          <div class="ui-row"><span class="ty">AnimationClip</span><span class="nm">Avatar_Boy_Idle_01</span><span class="ct">Animation</span></div>
+          <div class="ui-row"><span class="ty">Material</span><span class="nm">Mat_Body_01</span><span class="ct">Material</span></div>
+          <div class="ui-row"><span class="ty">AudioClip</span><span class="nm">Vo_PlayerBoy_001</span><span class="ct">Audio</span></div>
+          <div class="ui-row"><span class="ty">Shader</span><span class="nm">Avatar_Standard</span><span class="ct">Shader</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="shell" data-rise style="--i:2">
+      <h3>CLI 有 15 个选项，两个位置参数</h3>
+      <p>下表都来自 CommandLine.cs 里真实声明的 Option 泛型。README 写的 <code>--types Texture2D,Sprite</code> 是错的：代码按空格分隔，写成逗号会被解析成空集然后静默跳过。</p>
+      <pre class="ui-cli" data-ui><span class="p">&gt;</span> AnimeStudio.CLI.exe <span class="c">&lt;input&gt; &lt;output&gt;</span>
+    --game GI --types Texture2D Sprite
+    --export_type convert --group_assets ByContainer
+
+<span class="c">--silent        --logger_flags    --types
+--names         --containers      --game
+--map_op        --map_type        --map_name
+--unity_version --group_assets    --export_type
+--ai_file       --dummy_dlls      --key</span></pre>
+    </div>
+
+    <div class="shell" data-rise style="--i:3">
+      <h3>图形预览是 OpenGL，只画位置和法线</h3>
+      <p>网格走 OpenTK 的三个内嵌 GLSL program，正交投影，没有 UV、没有贴图、没有材质。纹理与精灵走 SkiaSharp 转 DirectBitmap，音频走 FMOD，着色器走独立反编译库。四套渲染路径，四种失败模式。</p>
+      <div class="ui" data-ui>
+        <div class="ui-head"><span>Preview · Mesh</span><span class="ui-btn">Wireframe</span></div>
+        <div class="ui-view">GLControl · 顶点缓冲在这里</div>
+        <div class="ui-row" style="grid-template-columns:1fr auto"><span class="ty">SK_Avatar_Boy_Antonio</span><span class="ct">12 384 tris</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top:clamp(26px,3vw,40px)">
+    <h3>已经分叉的四条，fork 时必须选边</h3>
+    <div class="rows" style="margin-top:4px">
+      <div class="row"><div class="rt"><b>不可导出但标记可导出的资产</b><span>CLI 无条件收录，GUI 要看 displayAll 开关。同一批文件两边导出的条目数不同。</span></div><div class="rv">Studio.cs</div></div>
+      <div class="row"><div class="rt"><b>Animator 导出把目录当文件名</b><span>CLI 侧把目录路径直接当 FBX 文件名，没有补后缀，产出的文件名缺 .fbx。</span></div><div class="rv">Exporter.cs</div></div>
+      <div class="row"><div class="rt"><b>去重序号起点不同</b><span>GUI 从 (1) 开始编号，CLI 从 (0) 开始。批量比对两份产物时会全部对不上。</span></div><div class="rv">命名策略</div></div>
+      <div class="row"><div class="rt"><b>三条链路只有 GUI 有</b><span>HDR 纹理导出、AFK Journey 的松散资产（.dxt / .jsone）、NapAssetBundleIndexAsset，CLI 侧完全没有。</span></div><div class="rv">功能缺口</div></div>
+    </div>
+  </div>
+</section>
+<!-- ============ MODULE TABLE ============ -->
+<section class="band wrap" id="modules">
+  <div class="head">
+    <h2>四个文件拿走了全部复杂度</h2>
+    <p>核心库 184 个文件、31281 行代码，真正的重量集中在四行里。耦合等级按「改动会牵动多少处」评定，不是按行数。</p>
+  </div>
+  <div class="scroll-x">
+    <table class="tbl">
+      <caption>AnimeStudio 核心库主要模块，行数为 UTF-8 换行统计，含空行</caption>
+      <thead>
+        <tr><th scope="col">模块</th><th scope="col" class="num">行数</th><th scope="col">它到底在做什么</th><th scope="col">耦合</th></tr>
+      </thead>
+      <tbody>
+        <tr><td data-l="模块"><code>AssetsManager.cs</code></td><td data-l="行数" class="num">1126</td><td data-l="职责">唯一的编排器：文件分派、容器解析、资源缓存、对象实例化、后处理全在一个类里</td><td data-l="耦合" class="sev"><span class="dot hi"></span>中枢</td></tr>
+        <tr><td data-l="模块"><code>ImportHelper.cs</code></td><td data-l="行数" class="num">1129</td><td data-l="职责">21 个厂商的整文件解密器平铺在一个静态类，没有策略接口，没有注册表</td><td data-l="耦合" class="sev"><span class="dot hi"></span>高</td></tr>
+        <tr><td data-l="模块"><code>AssetsHelper.cs</code></td><td data-l="行数" class="num">1052</td><td data-l="职责">索引构建、映射持久化、依赖解析、内存回收挤在一起，还自带一个静默的 AssetsManager 实例</td><td data-l="耦合" class="sev"><span class="dot hi"></span>高</td></tr>
+        <tr><td data-l="模块"><code>BundleFile.cs</code></td><td data-l="行数" class="num">922</td><td data-l="职责">容器头解析加六个厂商的块解密，内联在同一个 switch 里</td><td data-l="耦合" class="sev"><span class="dot hi"></span>高</td></tr>
+        <tr><td data-l="模块"><code>SerializedFile.cs</code></td><td data-l="行数" class="num">431</td><td data-l="职责">22 个格式版本的元数据解析，TypeTree 双读法，classID 反混淆</td><td data-l="耦合" class="sev"><span class="dot mid"></span>中</td></tr>
+        <tr><td data-l="模块"><code>GameManager.cs</code></td><td data-l="行数" class="num">361</td><td data-l="职责">游戏注册表、配置 record 继承链、全库共用的类型谓词</td><td data-l="耦合" class="sev"><span class="dot hi"></span>中枢</td></tr>
+        <tr><td data-l="模块"><code>TypeTreeHelper.cs</code></td><td data-l="行数" class="num">340</td><td data-l="职责">TypeTree 到字符串或字典的反射读取，未知类型导出的唯一通道</td><td data-l="耦合" class="sev"><span class="dot lo"></span>低</td></tr>
+        <tr><td data-l="模块"><code>ObjectReader.cs</code></td><td data-l="行数" class="num">110</td><td data-l="职责">单对象作用域读取器，带 byteSize 越界保护，共用父流</td><td data-l="耦合" class="sev"><span class="dot lo"></span>低</td></tr>
+        <tr><td data-l="模块"><code>Crypto/</code> 14 个文件</td><td data-l="行数" class="num">1 900</td><td data-l="职责">常量总仓加 12 份厂商密码实现，三层分工见下一节</td><td data-l="耦合" class="sev"><span class="dot mid"></span>中</td></tr>
+        <tr><td data-l="模块"><code>ClassIDType.cs</code></td><td data-l="行数" class="num">556</td><td data-l="职责">540 个具名 Unity 类型，对象分发的判据来源</td><td data-l="耦合" class="sev"><span class="dot lo"></span>低</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note" style="margin-top:18px">核对方式：<code>Get-ChildItem -Recurse -Filter *.cs | Get-Content | Measure-Object -Line</code>，按项目分组。C++ 侧的 1120 个文件里有大量 vendored 代码（simde、libpoe），不能直接计入自有工程量。</p>
+</section>
+
+<!-- ============ CRYPTO ============ -->
+<section class="band wrap" id="crypto">
+  <div class="head">
+    <h2>加密分三层落地</h2>
+    <p>整文件、容器头、数据块，三层各管一段，接口形态完全不同：L1 返回一个新 reader，L2 原地改 header 字段，L3 原地改写 Span&lt;byte&gt;。所以 L1 必须整文件进内存，L3 却能按块流式处理。</p>
+  </div>
+
+  <div class="cryptolayers">
+    <div class="clayer" data-rise>
+      <b>L1 整文件</b>
+      <span class="where">FileReader.cs:189</span>
+      <p>21 个厂商分支，字节级异或、多表混合、固定偏移段、魔数重定位都在这一层。按设计必须全量读入。</p>
+      <div class="tagline"><span class="tag">返回新 reader</span><span class="tag">所有权易手</span></div>
+    </div>
+    <div class="clayer" data-rise style="--i:1">
+      <b>L2 容器头</b>
+      <span class="where">BundleFile.cs:376 / :458</span>
+      <p>头字段解密、flag 掩码按 Unity 版本切换、blocksInfo 解压。原地改字段，不复制缓冲。</p>
+      <div class="tagline"><span class="tag">原地改字段</span><span class="tag">版本敏感</span></div>
+    </div>
+    <div class="clayer" data-rise style="--i:2">
+      <b>L3 数据块</b>
+      <span class="where">BundleFile.cs:603-740</span>
+      <p>由块头的压缩类型与 0x100 位驱动，六个厂商顺序判断。可以按块流式处理。</p>
+      <div class="tagline"><span class="tag">就地改写</span><span class="tag">并发危险</span></div>
+    </div>
+  </div>
+
+  <div class="scroll-x">
+    <table class="tbl">
+      <caption>密码族对照：只写机制与来源，不列任何密钥字节、S 盒内容或种子值</caption>
+      <thead><tr><th scope="col">厂商或游戏</th><th scope="col">层</th><th scope="col">密码族</th><th scope="col">密钥从哪来</th><th scope="col">锚点</th></tr></thead>
+      <tbody>
+        <tr><td data-l="厂商">UnityCN 系 · 约 24 款</td><td data-l="层">L2 + L3</td><td data-l="密码族">AES-128-ECB 单块白化，加运行时派生的半字节索引替换流</td><td data-l="密钥">CNKeys.json 里的 16 字节，或内置默认表</td><td data-l="锚点"><code>UnityCN.cs:51</code></td></tr>
+        <tr><td data-l="厂商">HoYo · GI / BH3 / SR / ZZZ / TOT</td><td data-l="层">L2 + L3</td><td data-l="密码族">mr0k：两轮 AES 加定制 S 盒映射，再用种子异或 pad</td><td data-l="密钥">内嵌常量，按游戏分区的 record 字段</td><td data-l="锚点"><code>Mr0kUtils.cs:12</code></td></tr>
+        <tr><td data-l="厂商">mhy0 / mhy1 容器</td><td data-l="层">L2</td><td data-l="密码族">定制 AES 加 RC4，再走 16 字节 Descramble</td><td data-l="密钥">BlbUtils 静态注入的表</td><td data-l="锚点"><code>MhyFile.cs:57</code></td></tr>
+        <tr><td data-l="厂商">GI CB2/CB3、ZZZ CB2 的 blk</td><td data-l="层">L2</td><td data-l="密码族">MT19937-64 生成 4KB 异或 pad，从 0x2A 起覆盖</td><td data-l="密钥">Blk record 的四个字段</td><td data-l="锚点"><code>BlkUtils.cs:14</code></td></tr>
+        <tr><td data-l="厂商">腾讯系 Blb3 / HYG / WMV / HNA</td><td data-l="层">L2</td><td data-l="密码族">非标准 S 盒的定制 AES，加变体 RC4，加 16 字节 Descramble</td><td data-l="密钥">按分区存放在常量总仓</td><td data-l="锚点"><code>BlbUtils.cs:123</code></td></tr>
+        <tr><td data-l="厂商">NetEase</td><td data-l="层">L3</td><td data-l="密码族">头扫描加自定义多项式 CRC 派生四段 key，再 RC4，再 0x80 对齐块异或</td><td data-l="密钥">从密文自身前 0x20 字节派生，无外部密钥</td><td data-l="锚点"><code>NetEaseUtils.cs:12</code></td></tr>
+        <tr><td data-l="厂商">明日方舟：终末地 CB1 / CB2</td><td data-l="层">L3</td><td data-l="密码族">0xA6 掩码加整数混洗派生 seed 与 key，CB1 与 CB2 各一套常量</td><td data-l="密钥">全部常量内嵌</td><td data-l="锚点"><code>FairGuardUtils.cs:37</code></td></tr>
+        <tr><td data-l="厂商">Endfield VFS</td><td data-l="层">L2</td><td data-l="密码族">头字段位旋转加异或解混淆，加定制 AES</td><td data-l="密钥">内嵌常量</td><td data-l="锚点"><code>VFSUtils.cs:44</code></td></tr>
+        <tr><td data-l="厂商">OPFP</td><td data-l="层">L3</td><td data-l="密码族">路径派生 key（路径长度加文件名长度），链式异或或原地置换</td><td data-l="密钥">路径字符串本身</td><td data-l="锚点"><code>OPFPUtils.cs:13</code></td></tr>
+        <tr><td data-l="厂商">EnsembleStars / Mark / Naraka / 假头系</td><td data-l="层">L1</td><td data-l="密码族">字节级异或、多表混合、固定偏移异或段、魔数重定位</td><td data-l="密钥">内嵌常量</td><td data-l="锚点"><code>ImportHelper.cs:277</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout" style="margin-top:clamp(22px,3vw,34px)">
+    <h3>UnityCN 密钥链路是这套设计里最干净的一段</h3>
+    <p>内置 24 条默认密钥，持久化在 exe 旁的 CNKeys.json，首次运行若读不到就重写成默认表。选中的 key 经 <code>UnityCN.SetKey</code> 下发到一个静态的 ICryptoTransform。头部里有一段自校验：用 key 解出来的签名必须等于两串公开魔数之一，这是判断「key 选对没有」的唯一探针。</p>
+    <p>静态单 key 带来一个硬约束：同一进程不能同时解两个不同的 UnityCN 游戏。想做多开或批处理，这是第一处必须改成实例作用域的地方。好消息是接入一款新的 UnityCN 游戏不需要改代码，往 CNKeys.json 加一行、枚举加一个成员就够。</p>
+  </div>
+</section>
+
+<!-- ============ MEMORY FIGURE ============ -->
+<section class="band wrap" id="memory">
+  <div class="figure-field">
+    <h3>512MB 是这个库的生死线</h3>
+    <p class="q">拖动滑块，看一个 AssetBundle 会被放进内存还是落到磁盘上。阈值和分支都来自真实代码，不是估算。</p>
+
+    <div class="slider-wrap">
+      <input type="range" id="bundleSize" min="8" max="2048" step="8" value="320" aria-label="AssetBundle 解压后的总大小，单位 MB">
+    </div>
+
+    <div class="readout">
+      <div class="bigfig"><span id="fig">320</span><small id="figUnit">MB</small></div>
+      <div class="branch" id="branchOut">
+        <span class="k">走内存</span><br>分配未初始化的数组，包一层公开可见的 MemoryStream，所有 CAB 切片零拷贝指回它。
+      </div>
+    </div>
+    <p class="note" style="color:#a9a09c;margin-top:22px;max-width:74ch">阈值来自 <code>BundleFile.cs:261</code>。另外两个相关阈值：单个对象超过 16MB 时，指纹退化成 size:&lt;hex&gt; 占位，跨版本差分对大对象失效；单块超过 1MB 时不再走 ArrayPool，避免池长期驻留大缓冲。索引模式每个 bundle 结束会手工触发一次非阻塞 GC。</p>
+  </div>
+</section>
+
+<!-- ============ RISKS ============ -->
+<section class="band wrap" id="risks">
+  <div class="head">
+    <h2>十个确认的缺陷，八处静态状态</h2>
+    <p>下面每一条都在源码里核对过。有的是能读到就能验证的写法错误，有的是会在陌生游戏上才炸的结构问题，还有几条会直接让自动化流水线误判成功。</p>
+  </div>
+
+  <div class="rows">
+    <div class="grouphead">代码缺陷</div>
+    <div class="row" data-rise><div class="rt"><b>WebFile 对空 List 索引赋值</b><span><code>WebFile.cs:47</code> 先新建 List 再 <code>fileList[i] = file</code>，任何含条目的 UnityWebData1.0 都会抛 ArgumentOutOfRange。外层 catch 兜住，表现为静默不解包。</span></div><div class="rv">确证</div></div>
+    <div class="row" data-rise><div class="rt"><b>XORStream 循环上界写错</b><span><code>XORStream.cs:24</code> 写成 <code>i &lt; count</code>，应为 <code>offset + read</code>。offset 非零时少异或一段，blk 容器经 OffsetStream 组合后可能踩中。</span></div><div class="rv">确证</div></div>
+    <div class="row" data-rise><div class="rt"><b>密钥字面量硬编码在逻辑里</b><span><code>BundleFile.cs:152</code> 把 Azur Promilia CBT2 的 key 直接写死在分支中，换版本必须改源码重编译。</span></div><div class="rv">设计债</div></div>
+    <div class="row" data-rise><div class="rt"><b>厂商判断是顺序 if 链</b><span><code>BundleFile.cs:711</code> 起六条判断并行评估，理论上可叠加。新增厂商时一个包命中两条就是双重解密。</span></div><div class="rv">隐患</div></div>
+    <div class="row" data-rise><div class="rt"><b>依赖反查是 O(n²)</b><span><code>AssetsHelper.cs:112</code> 每次调用都对整张 CABMap 做一次 PLINQ 扫描，而它被放在内层循环里。这是大目录建索引的主要耗时点。</span></div><div class="rv">性能</div></div>
+    <div class="row" data-rise><div class="rt"><b>递归下降没有深度上限</b><span><code>SerializedFile.cs:324</code> 旧版本 TypeTree 走递归，深度由文件内容决定。损坏或被构造过的文件可以打出不可捕获的 StackOverflow。</span></div><div class="rv">稳定性</div></div>
+    <div class="row" data-rise><div class="rt"><b>CLI 退出码恒为 0</b><span><code>CommandLine.cs:16</code> 丢弃了 <code>Invoke()</code> 的返回值，动作 lambda 返回 void，<code>Program.Run</code> 又把异常全吞了。CI 无法从退出码判断成败，这是性价比最高的一处修复。</span></div><div class="rv">确证</div></div>
+    <div class="row" data-rise><div class="rt"><b>四个菜单项从未接线</b><span>「Preview enabled」「Display asset information」「Filter models only」的处理器都写好了，但设计器只设了 CheckOnClick，从未订阅事件。「Load from GitHub」的展开回调同样没接，整条版本管理链路不可达。</span></div><div class="rv">死功能</div></div>
+    <div class="row" data-rise><div class="rt"><b>并行导出被工作目录切换锁死</b><span>FBX 导出前后会 <code>Directory.SetCurrentDirectory</code> 再还原，这是进程级状态。想让模型导出并行，必须先把原生包装层改成绝对路径。</span></div><div class="rv">阻塞并发</div></div>
+    <div class="grouphead">静态可变状态</div>
+    <div class="row" data-rise><div class="rt"><b>UnityCN 的单一 ICryptoTransform</b><span><code>UnityCN.cs:12</code> 进程级单 key，两个 UnityCN 游戏无法并存。</span></div><div class="rv">阻塞并发</div></div>
+    <div class="row" data-rise><div class="rt"><b>BlbUtils 的四张静态表</b><span><code>BlbUtils.cs:10</code> 每次解析文件都覆写密钥表，多线程解 blb、hyg、wmv 必然串味。</span></div><div class="rv">阻塞并发</div></div>
+    <div class="row" data-rise><div class="rt"><b>AssetsHelper 自身是单例</b><span><code>AssetsHelper.cs:28</code> 内部自带一个静默专用 AssetsManager，构建索引时全局串行，还会就地改写 Game 与版本字段。</span></div><div class="rv">阻塞并发</div></div>
+    <div class="row" data-rise><div class="rt"><b>XORShift128 的静态种子</b><span><code>XORShift128.cs:12</code> 头解密后不会复位，非重入。</span></div><div class="rv">隐性耦合</div></div>
+    <div class="row" data-rise><div class="rt"><b>TypeFlags 白名单</b><span><code>TypeFlags.cs:7</code> 全局开关，CLI 从配置注入，与读操作无同步。</span></div><div class="rv">隐性耦合</div></div>
+    <div class="row" data-rise><div class="rt"><b>进度百分比单调递增</b><span><code>Progress.cs:30</code> 只有新值大于旧值才更新，两个任务并行时互相吞进度。</span></div><div class="rv">体验</div></div>
+    <div class="row" data-rise><div class="rt"><b>StringCache 无锁</b><span><code>AssetMap.cs:10</code> 依赖调用方在 bundle 边界手动 Clear，忘了就是内存缓慢上涨。</span></div><div class="rv">内存</div></div>
+    <div class="row" data-rise><div class="rt"><b>日志与进度是静态门面</b><span>替换实现只能全局替换，多实例场景下没有隔离。</span></div><div class="rv">设计债</div></div>
+  </div>
+
+  <div class="callout" style="margin-top:clamp(26px,3vw,40px)">
+    <h3>错误模型是「静默降级」，这是最容易误判的地方</h3>
+    <p>容器级失败只记日志然后返回，调用方看到的是 <code>assetsFileList</code> 少了几项，不是异常。对象级失败逐条 catch，把名称、路径、类型、pathID 打进日志后继续。真正的硬失败只有三处：版本缺失、块尺寸非法、blocksInfo 越界。</p>
+    <p>对于批处理场景，这意味着退出码为 0 不代表全部解析成功。做二次开发时要先把日志里的失败计数提炼成结构化结果，否则自动化流水线会静默丢资产。</p>
+  </div>
+</section>
+
+<!-- ============ SEAMS ============ -->
+<section class="band wrap" id="seams">
+  <div class="head">
+    <h2>改代码前先认这十处接缝</h2>
+    <p>这十个位置决定了改动会不会溢出到别处。中间是位置，右边是动了它之后还要动什么。</p>
+  </div>
+  <div class="scroll-x">
+    <table class="tbl">
+      <caption>核心集成接缝，按调用顺序排列</caption>
+      <thead><tr><th scope="col">接缝</th><th scope="col">位置</th><th scope="col">为什么关键</th></tr></thead>
+      <tbody>
+        <tr><td data-l="接缝">容器分派</td><td data-l="位置"><code>AssetsManager.cs:245</code></td><td data-l="为什么">所有文件类型的唯一分派点，加新格式从这里进</td></tr>
+        <tr><td data-l="接缝">整文件解密</td><td data-l="位置"><code>FileReader.cs:183</code></td><td data-l="为什么">21 个厂商分支与 BlockFile 降级都在这里，改它等于改入口契约</td></tr>
+        <tr><td data-l="接缝">容器契约</td><td data-l="位置"><code>AssetsManager.cs:660</code></td><td data-l="为什么">m_Header 加 fileList 被 dynamic 消费，凭成员名接头</td></tr>
+        <tr><td data-l="接缝">块解密现场</td><td data-l="位置"><code>BundleFile.cs:590</code></td><td data-l="为什么">六个厂商顺序判断，0x100 位在这里判定</td></tr>
+        <tr><td data-l="接缝">元数据解析</td><td data-l="位置"><code>SerializedFile.cs:37</code></td><td data-l="为什么">22 个版本分支与 externals 表，决定 PPtr 能不能跨文件解析</td></tr>
+        <tr><td data-l="接缝">对象读取作用域</td><td data-l="位置"><code>ObjectReader.cs:21</code></td><td data-l="为什么">共享流，禁止并发；所有对象类的构造都经过它</td></tr>
+        <tr><td data-l="接缝">引用解析</td><td data-l="位置"><code>Classes/PPtr.cs:75</code></td><td data-l="为什么">全库唯一的 PPtr 实现，靠索引缓存做 O(1) 定位</td></tr>
+        <tr><td data-l="接缝">反射读取</td><td data-l="位置"><code>TypeTreeHelper.cs:11</code></td><td data-l="为什么">MonoBehaviour 与未知类型导出的唯一通道</td></tr>
+        <tr><td data-l="接缝">索引构建</td><td data-l="位置"><code>AssetsHelper.cs:523</code></td><td data-l="为什么">资产发现、命名、容器归并、指纹策略的唯一实现</td></tr>
+        <tr><td data-l="接缝">UnityCN 密钥</td><td data-l="位置"><code>UnityCN.cs:71</code></td><td data-l="为什么">约 24 款游戏的完整密钥链路，静态单 key 是硬约束</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ BUILD ============ -->
+<section class="band wrap" id="build">
+  <div class="head">
+    <h2>原生库不参与构建，7.65MB 二进制进 git</h2>
+    <p>八个原生项目里没有一处 C++/CLI，全是 <code>extern "C"</code> 加 <code>DllImport</code>。CI 只编译三个托管项目，原生 DLL 以预编译形式提交，占了工作树四分之一。对 fork 意味着：改得动 C#，改不动算法。</p>
+  </div>
+  <div class="scroll-x">
+    <table class="tbl">
+      <caption>原生项目矩阵：产出、互操作方式、是否参与解决方案构建</caption>
+      <thead><tr><th>项目</th><th>产出</th><th>互操作</th><th>进解决方案构建</th></tr></thead>
+      <tbody>
+        <tr><td data-l="项目">AnimeStudio.Ooz</td><td data-l="产出">Oodle 家族解压，Kraken、Mermaid、Leviathan</td><td data-l="互操作">extern &quot;C&quot; __stdcall 加 DllImport</td><td data-l="进构建">否，Build=false</td></tr>
+        <tr><td data-l="项目">ACL.DB / ZZZ / ZZZV2 / MHY / SR</td><td data-l="产出">动画压缩解码，5 份独立源码树，297k 行</td><td data-l="互操作">同名符号靠 EntryPoint 指定</td><td data-l="进构建">是，5 个都在</td></tr>
+        <tr><td data-l="项目">HLSLDecompiler</td><td data-l="产出">着色器反编译，源自 3Dmigoto 1.4.9</td><td data-l="互操作">手写导出表</td><td data-l="进构建">是</td></tr>
+        <tr><td data-l="项目">FBXNative</td><td data-l="产出">FBX 导出，静态链入 Autodesk FBX SDK</td><td data-l="互操作">extern &quot;C&quot; __stdcall</td><td data-l="进构建">否，Build=false</td></tr>
+        <tr><td data-l="项目">FBXWrapper</td><td data-l="产出">托管包装层，导出时切换工作目录</td><td data-l="互操作">直接引用</td><td data-l="进构建">是</td></tr>
+        <tr><td data-l="项目">PInvoke</td><td data-l="产出">少量 Win32 封装</td><td data-l="互操作">DllImport</td><td data-l="进构建">是</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="shells" style="margin-top:clamp(22px,3vw,34px)">
+    <div class="callout">
+      <h3>许可不是统一的，商用前必须核对</h3>
+      <p>仓库根目录是 MIT，但 <code>AnimeStudio.Ooz/kraken.cpp</code> 的文件头是 GPLv3，而它是 Oodle 解压的唯一入口。另外 <code>AnimeStudio.FMOD.dll</code> 是 2016 年的免费非商用版。内部工具无所谓，准备对外分发或商用，这两处必须先处理。</p>
+    </div>
+    <div class="callout">
+      <h3>可复现性有三处硬伤</h3>
+      <p>FBX SDK 2020.3.7 的绝对路径硬编码在四个地方，没有环境变量回退，也没有 vcpkg，换台机器第一天就卡住。预编译二进制没有溯源，资源文件版本号恒为 1.0.0.x，源码与二进制可能已经漂移。单独用 msbuild 编 vcxproj 时 <code>$(SolutionDir)</code> 为空，DLL 会落到盘符根目录。</p>
+    </div>
+  </div>
+  <div class="callout" style="margin-top:6px">
+    <h3>那个 bin 目录是三方妥协的产物</h3>
+    <p>发行包根目录只放两个 exe，所有托管 dll 进 <code>bin/</code>。原因有三：只露两个文件给用户、CLI 与 GUI 共享同一个 bin、以及 DLL 加载器会反向探测 bin 目录。代价是要一个构建期的 Patcher 去改写 apphost 里内嵌的入口路径，还要三层防护处理历史上出现过的 <code>bin\bin\</code> 堆叠。</p>
+  </div>
+</section>
+
+<!-- ============ ROADMAP ============ -->
+<section class="band wrap" id="roadmap">
+  <div class="head">
+    <h2>要二次开发，按这个顺序动</h2>
+    <p>五步，每一步都能独立交付、独立验证。工作量是给一个人的粗估，前提是已经能跑通官方构建脚本。</p>
+  </div>
+  <div class="rows" style="margin-bottom:clamp(28px,3.4vw,44px)">
+    <div class="grouphead">四条配方，按改动量从小到大</div>
+    <div class="row" data-rise><div class="rt"><b>接一款新的 UnityCN 游戏</b><span>往 CNKeys.json 加一行，GameType 加一个枚举成员，LoadGames 注册。零行代码改动，改完重编译都不用。</span></div><div class="rv">改配置</div></div>
+    <div class="row" data-rise><div class="rt"><b>接一款已有密码族的新游戏</b><span>枚举值（GameManager.cs:191）、Is 谓词（:278）、注册（:27）；米系再补一条 record 承载密钥字段。</span></div><div class="rv">十几行</div></div>
+    <div class="row" data-rise><div class="rt"><b>接一种新容器</b><span>FileType 加成员、FileReader.cs:37 加魔数嗅探、写一个暴露 m_Header 与 fileList 的 XxxFile、在 AssetsManager.cs:670 的 switch 加一路。</span></div><div class="rv">一个类</div></div>
+    <div class="row" data-rise><div class="rt"><b>接一种新块加密</b><span>CompressionType 加枚举值（BundleFile.cs:32）、写 XxxUtils.Decrypt(Span)、在 ReadBlocks 的 case 里插入（:603）。注意别插到顺序 if 链里会造成叠加。</span></div><div class="rv">一个工具类</div></div>
+    <div class="row" data-rise><div class="rt"><b>加一种导出格式</b><span>合并之后的 Exporter switch 加一个 case，再写一个 Convert 方法。这一步做完，GUI 与 CLI 同时获得新格式。</span></div><div class="rv">一个方法</div></div>
+  </div>
+
+  <div class="phases">
+    <div class="phase" data-rise>
+      <div class="ph">地基<small>先能跑</small></div>
+      <ul>
+        <li>Visual Studio 2022 加 C++ 桌面负载，.NET 9 与 10 两个 SDK</li>
+        <li>原生 dll 不重建，直接用仓库里的预编译产物，先用 <code>build.ps1</code> 走一遍双 TFM 打包</li>
+        <li>要做模型导出，先装 Autodesk FBX SDK 2020.3.7，或者把那四处绝对路径改掉</li>
+        <li>把 CLI 的 <code>--game GI --types Texture2D</code> 跑通一次，作为回归基线</li>
+      </ul>
+      <div class="eff">约 1 天</div>
+    </div>
+    <div class="phase" data-rise style="--i:1">
+      <div class="ph">去重<small>合并导出</small></div>
+      <ul>
+        <li>把 <code>GUI/Exporter.cs</code> 与 <code>CLI/Exporter.cs</code> 合并成一份，挪进 <code>AnimeStudio.Utility</code></li>
+        <li>GUI 与 CLI 都改成薄壳调用，先不动核心库</li>
+        <li>验收标准：两边对同一批资产导出的字节完全一致</li>
+      </ul>
+      <div class="eff">约 3 天</div>
+    </div>
+    <div class="phase" data-rise style="--i:2">
+      <div class="ph">解耦<small>变 headless</small></div>
+      <ul>
+        <li>核心库去配置依赖：<code>Properties.Settings</code> 里的行为开关换成一个可注入的选项对象</li>
+        <li>把 Logger、Progress、TypeFlags 从静态门面改成显式传入</li>
+        <li>产出一个能被控制台或服务直接引用的 <code>AnimeStudio.Core</code></li>
+      </ul>
+      <div class="eff">约 1 周</div>
+    </div>
+    <div class="phase" data-rise style="--i:3">
+      <div class="ph">并发<small>才敢并行</small></div>
+      <ul>
+        <li>先把 <code>BlbUtils</code> 的四张静态表改成实例持有，这是最便宜的一步</li>
+        <li>UnityCN 的 key 改成实例作用域，顺便支持同进程多游戏</li>
+        <li>对象读取改 per-thread reader 池，或每对象一次 <code>File.Open</code> 配 <code>BoundedStream</code></li>
+        <li>拆掉 GC.Collect 与共享缓冲零拷贝这两处耦合，再谈并行</li>
+      </ul>
+      <div class="eff">约 2 周</div>
+    </div>
+    <div class="phase" data-rise style="--i:4">
+      <div class="ph">工程化<small>长期收益</small></div>
+      <ul>
+        <li>把 78 个枚举值与八个 Is 谓词族数据化，游戏配置改成外部 JSON 注册表</li>
+        <li>给 CABMap 与 AssetMap 加版本头，再用现成但没人调用的 <code>AssetEntryComparer</code> 做差分工</li>
+        <li>把日志里的失败计数提炼成结构化结果，让退出码可信</li>
+        <li>对外分发前处理 kraken.cpp 的 GPLv3 与 FMOD 的非商用许可</li>
+      </ul>
+      <div class="eff">约 2 到 3 周</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ VERDICT ============ -->
+<section class="band wrap" id="verdict">
+  <p class="statement" data-rise>不值得照抄结构，值得照抄覆盖面：52 款游戏、22 个格式版本、10 类密码族跑在同一条管线上。</p>
+  <div class="measure" style="margin-top:clamp(28px,4vw,44px);display:grid;gap:16px;max-width:64ch">
+    <p>它的强项是「把不可能变成能跑」，弱项是「把能跑变成能维护」。所有复杂度都集中在四个文件、一个 dynamic 契约和一串顺序 if 上，这既是接一款新游戏只需改十几行的原因，也是它没法直接长成产品的原由。</p>
+    <p>二次开发的真正分水岭不在功能，而在要不要并发、要不要 headless。这两个问题一旦答「要」，第三步和第四步就必须做完；如果只是给现有 GUI 加几个导出格式，那合并两份 Exporter 就已经够用。</p>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="foot">
+    <div class="foot-band">
+      <div style="display:grid;gap:12px">
+        <span class="wordmark">AnimeStudio</span>
+        <p style="font-size:var(--step-small)">MIT 许可，版权归 Escartem 及贡献者所有。原生侧另有两处许可需单独核对。</p>
+      </div>
+      <div class="foot-cols">
+      <div style="display:grid;gap:10px">
+        <h3>这份报告怎么来的</h3>
+        <p>仓库用 gh 拉到本地，全部结论来自静态阅读与符号检索。没有编译、没有运行、没有修改任何源文件。</p>
+        <p>行号对应提交 e616e3f（master）。三份原始笔记在 <code>research/</code> 下：核心管线、原生与构建、应用层，合计 1691 行。</p>
+      </div>
+      <div style="display:grid;gap:10px;align-content:start">
+        <h3>跳到</h3>
+        <ul>
+          <li><a href="#layers">六层结构</a></li>
+          <li><a href="#pipeline">七跳管线</a></li>
+          <li><a href="#crypto">加密矩阵</a></li>
+          <li><a href="#risks">缺陷清单</a></li>
+          <li><a href="#build">构建与许可</a></li>
+          <li><a href="#roadmap">改造顺序</a></li>
+        </ul>
+      </div>
+      <div style="display:grid;gap:10px;align-content:start">
+        <h3>数字快照</h3>
+        <ul>
+          <li>1533 个文件，54MB</li>
+          <li>6.4 万行 C#，43 万行 C/C++</li>
+          <li>7.65MB 预编译原生二进制</li>
+          <li>12 处 GUI 与 CLI 的行为分叉</li>
+          <li>10 个已确认的代码缺陷</li>
+        </ul>
+      </div>
+      </div>
+    </div>
+    <div class="foot-cta">
+      <a href="https://github.com/Escartem/AnimeStudio" target="_blank" rel="noopener">
+        <h3>回到源码</h3>
+        <p>所有结论都可核对，每个数字后面都有 file:line。仓库 1288 star、213 fork，仍在更新。</p>
+        <span class="go">打开仓库 →</span>
+      </a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  document.documentElement.classList.add('js');
+
+  /* ---- hero byte sheets: the four real container signatures from FileReader.cs ---- */
+  var SHEETS = [
+    {kind:'UnityFS', note:'FileReader.cs:47 · 7 字节签名', bytes:[0x55,0x6e,0x69,0x74,0x79,0x46,0x53]},
+    {kind:'ENCR',    note:'FileReader.cs:53 · 4 字节签名', bytes:[0x45,0x4e,0x43,0x52]},
+    {kind:'blk',     note:'FileReader.cs:51 · 3 字节签名', bytes:[0x62,0x6c,0x6b]},
+    {kind:'mhy0',    note:'FileReader.cs:18 · 4 字节签名', bytes:[0x6d,0x68,0x79,0x30]}
+  ];
+  var CELLS = 64;
+  function hex(b){ return ('0' + b.toString(16)).slice(-2); }
+  var sheets = document.querySelectorAll('.bytesheet');
+  SHEETS.forEach(function(s, i){
+    var el = sheets[i]; if (!el) return;
+    var html = '';
+    for (var k = 0; k < CELLS; k++) {
+      if (k < s.bytes.length) html += '<span class="cell hot">' + hex(s.bytes[k]) + '</span>';
+      else if (k < 24) html += '<span class="cell warm"></span>';
+      else html += '<span class="cell blank"></span>';
+    }
+    el.innerHTML = html;
+  });
+  var kindEl = document.getElementById('peekKind');
+  var noteEl = document.getElementById('peekNote');
+  var idx = 0, timer = null;
+  function show(i){
+    sheets.forEach(function(el, k){ el.classList.toggle('on', k === i); });
+    if (kindEl) kindEl.textContent = SHEETS[i].kind;
+    if (noteEl) noteEl.textContent = SHEETS[i].note;
+  }
+  function tick(){ idx = (idx + 1) % SHEETS.length; show(idx); }
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduce) {
+    timer = setInterval(tick, 5400);
+    document.addEventListener('visibilitychange', function(){
+      if (document.hidden) { clearInterval(timer); timer = null; }
+      else if (!timer) { timer = setInterval(tick, 5400); }
+    });
+  }
+
+  /* ---- reveal on scroll ---- */
+  var items = document.querySelectorAll('[data-rise]');
+  if ('IntersectionObserver' in window && !reduce) {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, {rootMargin:'0px 0px -12% 0px', threshold:0.12});
+    items.forEach(function(el){ io.observe(el); });
+  } else {
+    items.forEach(function(el){ el.classList.add('in'); });
+  }
+
+  /* ---- pipeline stepper ---- */
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.hop'));
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.panel'));
+  function select(n){
+    tabs.forEach(function(t){ t.setAttribute('aria-selected', String(t.dataset.hop === String(n))); });
+    panels.forEach(function(p){ p.hidden = p.dataset.panel !== String(n); });
+  }
+  tabs.forEach(function(t){
+    t.addEventListener('click', function(){ select(t.dataset.hop); });
+    t.addEventListener('keydown', function(e){
+      var i = Number(t.dataset.hop);
+      if (e.key === 'ArrowRight') { e.preventDefault(); var n = (i+1)%tabs.length; select(n); tabs[n].focus(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); var p = (i-1+tabs.length)%tabs.length; select(p); tabs[p].focus(); }
+    });
+  });
+  select(0);
+
+  /* ---- memory threshold slider ---- */
+  var range = document.getElementById('bundleSize');
+  var fig = document.getElementById('fig');
+  var unit = document.getElementById('figUnit');
+  var out = document.getElementById('branchOut');
+  function render(){
+    var mb = Number(range.value);
+    if (mb >= 1024) { fig.textContent = (mb/1024).toFixed(mb % 1024 === 0 ? 0 : 2); unit.textContent = 'GB'; }
+    else { fig.textContent = String(mb); unit.textContent = 'MB'; }
+    if (mb <= 512) {
+      out.innerHTML = '<span class="k">走内存</span><br>分配未初始化的数组，包一层公开可见的 MemoryStream，所有 CAB 切片零拷贝指回它。';
+    } else {
+      out.innerHTML = '<span class="k">落到磁盘</span><br>改建一个 .temp 文件，用 DeleteOnClose 标记，退出即删。切片变成文件偏移视图。';
+    }
+  }
+  if (range) { range.addEventListener('input', render); render(); }
+})();
+</script>
+</body>
+</html>

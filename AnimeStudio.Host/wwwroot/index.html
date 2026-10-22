@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnimeStudio · 文本与 UI 提取</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">ANIMESTUDIO</span>
+      <span class="brand__sub">文本 &amp; UI 提取</span>
+    </div>
+
+    <nav class="games" id="games" aria-label="选择游戏"></nav>
+
+    <div class="topbar__right">
+      <span class="chip" id="indexChip"><i class="dot"></i><span id="indexChipText">索引就绪</span></span>
+      <span class="mode" id="modeChip">浏览器预览</span>
+    </div>
+  </header>
+
+  <aside class="rail">
+
+    <section class="rail__block">
+      <h2 class="label">① 索引 <span>INDEX</span></h2>
+      <div class="pathrow">
+        <code class="path" id="gamePath">—</code>
+        <button class="btn btn--ghost btn--xs" id="pickPath" title="选择一个游戏安装目录">更换</button>
+      </div>
+      <p class="indexmeta" id="indexMeta">—</p>
+      <div class="progress" id="indexProgress" hidden>
+        <div class="progress__bar"><i id="indexBar"></i></div>
+        <p class="progress__text" id="indexProgressText">准备中…</p>
+      </div>
+      <button class="btn btn--accent" id="buildIndex">重建索引</button>
+      <p class="hint">索引只记录「哪个资源在哪个 block 里」，不导出文件。整局一次，几秒完成。</p>
+    </section>
+
+    <section class="rail__block">
+      <h2 class="label">统计 <span>STATS</span></h2>
+      <dl class="stats" id="stats"></dl>
+    </section>
+
+    <section class="rail__block">
+      <h2 class="label">② 快速提取 <span>PRESETS</span></h2>
+      <ul class="presets" id="presets"></ul>
+    </section>
+
+    <section class="rail__block rail__block--end">
+      <h2 class="label">输出 <span>OUTPUT</span></h2>
+      <code class="path path--out" id="outDir">out/</code>
+      <label class="field">
+        <span>分组方式</span>
+        <select id="groupMode">
+          <option value="ByContainer">按容器路径（推荐）</option>
+          <option value="ByType">按类型扁平</option>
+        </select>
+      </label>
+      <p class="hint">同名资源在不同容器里很常见，按容器分组才不会互相覆盖。</p>
+    </section>
+
+  </aside>
+
+  <main class="main">
+
+    <div class="tabs" role="tablist" aria-label="内容视图">
+      <button class="tab is-active" role="tab" aria-selected="true" data-tab="text">
+        文本表 <em id="tabTextCount">—</em>
+      </button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="images">
+        UI 图库 <em id="tabImageCount">—</em>
+      </button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="log">
+        日志
+      </button>
+      <div class="tabs__spacer"></div>
+      <button class="btn btn--ghost btn--xs" id="togglePanel" title="显示 / 隐藏详情面板">详情面板</button>
+    </div>
+
+    <!-- 文本表 -->
+    <section class="pane is-active" data-pane="text" role="tabpanel">
+      <div class="toolbar">
+        <label class="search">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+          <input id="textSearch" type="search" placeholder="搜索中文、哈希…  （/ 聚焦）" autocomplete="off">
+        </label>
+        <label class="field field--inline">
+          <span>语言</span>
+          <select id="textLang"></select>
+        </label>
+        <span class="count" id="textCount">—</span>
+        <div class="toolbar__spacer"></div>
+        <button class="btn btn--ghost btn--xs" id="textExportCsv">导出 CSV</button>
+        <button class="btn btn--xs" id="textExportJson">导出 JSON</button>
+      </div>
+
+      <div class="list">
+        <div class="list__head list__head--text">
+          <span class="c-index">#</span>
+          <span class="c-hash">TextMapHash</span>
+          <span class="c-text">中文</span>
+          <span class="c-src">来源</span>
+        </div>
+        <div class="list__scroll" id="textScroll">
+          <div class="list__spacer" id="textSpacer"></div>
+          <div class="list__window" id="textWindow"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- UI 图库 -->
+    <section class="pane" data-pane="images" role="tabpanel" hidden>
+      <div class="toolbar">
+        <label class="search">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+          <input id="imageSearch" type="search" placeholder="搜索资源名…" autocomplete="off">
+        </label>
+        <div class="chips" id="imageFilters"></div>
+        <div class="toolbar__spacer"></div>
+        <span class="count" id="imageCount">—</span>
+        <button class="btn btn--ghost btn--xs" id="imageClear">清空选择</button>
+        <button class="btn btn--xs" id="imageExport">导出 PNG</button>
+      </div>
+
+      <div class="grid" id="imageGrid"></div>
+    </section>
+
+    <!-- 日志 -->
+    <section class="pane" data-pane="log" role="tabpanel" hidden>
+      <div class="toolbar">
+        <span class="count">任务日志</span>
+        <div class="toolbar__spacer"></div>
+        <button class="btn btn--ghost btn--xs" id="logClear">清空</button>
+      </div>
+      <ol class="log" id="logList"></ol>
+    </section>
+
+  </main>
+
+  <aside class="panel" id="panel">
+    <div class="panel__head">
+      <h2 class="label">详情 <span>INSPECTOR</span></h2>
+      <button class="btn btn--ghost btn--xs" id="panelClose">收起</button>
+    </div>
+    <div class="panel__body" id="panelBody"></div>
+  </aside>
+
+  <footer class="statusbar">
+    <div class="statusbar__left">
+      <span class="spinner" id="statusSpinner" hidden></span>
+      <span id="statusText">就绪</span>
+    </div>
+    <div class="statusbar__right">
+      <span id="statusRight">引擎 本地 · 不上传</span>
+    </div>
+  </footer>
+
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>界面导览 · AnimeStudio 说明书</title>
+<meta name="description" content="AnimeStudio 界面导览：两栏工作区、六个菜单、场景树、资产列表的 6 列、三张标签页与预览面板，逐块讲清能做什么、不能做什么，并列出这一版的已知问题。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body data-theme="paper" data-page="gui">
+<a class="skip" href="#main">跳到正文</a>
+
+<header class="topbar">
+  <a class="mark" href="index.html">
+    <span class="mark-plate">AS</span>
+    <span>AnimeStudio<span class="mark-sub"> 说明书</span></span>
+  </a>
+  <button class="navtoggle" data-navtoggle aria-expanded="false">目录</button>
+  <nav class="topnav" data-topnav aria-label="主导航">
+    <a href="start.html">上手</a>
+    <a href="gui.html" aria-current="page">界面</a>
+    <a href="pipeline.html">原理</a>
+    <a href="games.html">游戏</a>
+    <a href="faq.html">排错</a>
+    <a class="btn" href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">下载 .NET 10 版</a>
+  </nav>
+</header>
+
+<div class="wrap shell">
+  <aside class="sidenav" aria-label="手册目录">
+    <div class="sidenav-group">
+      <p class="sidenav-title">开始</p>
+      <a href="index.html">封面</a>
+      <a href="start.html">五分钟上手</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">用</p>
+      <a href="gui.html" aria-current="page">界面导览</a>
+      <a href="batch.html">批量与资产地图</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">懂</p>
+      <a href="pipeline.html">它怎么工作</a>
+      <a href="games.html">游戏与它们的锁</a>
+    </div>
+    <div class="sidenav-group">
+      <p class="sidenav-title">其它</p>
+      <a href="faq.html">疑难解答</a>
+      <a href="dev.html">想改代码</a>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="pagehead">
+      <h1>界面导览</h1>
+      <p class="lead">一个窗口，两栏工作区，六个菜单；先认清每块在回答什么，再动手导出。</p>
+      <div class="pagehead-extra">
+        <a class="btn" href="start.html">先看五分钟上手</a>
+        <a class="btn btn-quiet" href="batch.html">批量与资产地图</a>
+      </div>
+    </header>
+
+    <div class="prose">
+<div class="toc">
+      <p>本页内容</p>
+      <a href="#overview">先看整体</a>
+      <a href="#menus">六个菜单</a>
+      <a href="#tabs">左栏的三张标签页</a>
+      <a href="#tree">场景树怎么读</a>
+      <a href="#columns">资产列表的 6 列</a>
+      <a href="#filter">过滤、搜索与排序</a>
+      <a href="#preview">右栏：预览面板</a>
+      <a href="#model">3D 预览的真实限制</a>
+      <a href="#export-options">Export Options</a>
+      <a href="#known">三个已知问题</a>
+    </div>
+      <h2 id="overview">先看整体</h2>
+      <p>AnimeStudio 的图形界面是 <code>AnimeStudio.GUI.exe</code>。打开后，标题栏写着 <code>AnimeStudio v1.1.0</code>；加载成功后，后面还会追加产品名、Unity 版本和目标平台。</p>
+      <p>窗口只有左右两栏。左栏约占四成，是一个带三张标签页的工作区：<code>Scene Hierarchy</code>、<code>Asset List</code>、<code>Asset Classes</code>。右栏约占六成，是 <code>Preview</code> 和 <code>Dump</code> 两页。树和列表不是并排的，它们共用左栏，靠标签切换。窗口最底下，左栏下方是进度条，右栏下方是状态栏。</p>
+
+      <div class="facts">
+        <div class="fact"><b>6</b><span>组顶层菜单</span></div>
+        <div class="fact"><b>3</b><span>张工作区标签页</span></div>
+        <div class="fact"><b>6</b><span>列资产信息</span></div>
+        <div class="fact"><b>2</b><span>个预览页：Preview / Dump</span></div>
+      </div>
+
+      <div class="callout">
+        <h3>只想存一张角色立绘</h3>
+        <p>走这条最短的路：<code>File → Load folder</code> 选包目录，<code>Filter Type</code> 只勾 <code>Texture2D</code> 和 <code>Sprite</code>，在 <code>Asset List</code> 里选中一张，右栏确认，最后 <code>Export → Selected assets</code>。</p>
+      </div>
+
+      <p>把 <code>.bundle</code> 想成快递箱，CAB 就是箱子里的小盒。锁和钥匙的事在 <a href="games.html">游戏与它们的锁</a>里讲，这页只管拆箱。</p>
+
+      <h2 id="menus">六个菜单</h2>
+      <div class="table-wrap">
+        <table>
+          <caption>菜单按从左到右排列；每组只列新手最常用到的几项。</caption>
+          <thead>
+            <tr><th>菜单</th><th>管什么</th><th>新手先用哪几项</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>File</code></td><td>打开、解包、清空当前结果</td><td><code>Load folder</code>、<code>Extract folder</code>、<code>Reset</code>、<code>Abort</code></td></tr>
+            <tr><td><code>Options</code></td><td>游戏、Unity 版本、导出设置、主题和高级开关</td><td><code>Select Game</code>、<code>Specify Unity version</code>、<code>Export options</code>、<code>Advanced</code></td></tr>
+            <tr><td><code>Export</code></td><td>把当前结果导出成文件</td><td><code>All assets</code>、<code>Selected assets</code>、<code>Filtered assets</code>、<code>Models - Objects → Export selected</code></td></tr>
+            <tr><td><code>Filter Type</code></td><td>只看某一类资产</td><td><code>All</code>，以及每次加载后出现的 <code>Texture2D</code>、<code>Sprite</code>、<code>AudioClip</code> 等</td></tr>
+            <tr><td><code>Maps</code></td><td>资产地图、CAB 地图和 Asset Browser 入口</td><td><code>Asset Map → Build</code>、<code>Open Asset Browser</code>、<code>Asset Index → Load from file</code></td></tr>
+            <tr><td><code>About</code></td><td>关于窗口</td><td>点一下即可，没有下拉项</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>第六组菜单在窗口上叫 <code>Maps</code>，源码里的字段名仍是 <code>miscToolStripMenuItem</code>；有些旧资料把它写作 Misc。你在界面上找 <code>Maps</code> 就对了。</p>
+
+      <p><code>Export → All assets</code> 默认是 <code>Convert</code>：贴图转 PNG、音频转 WAV、模型转 FBX。<code>Raw</code>、<code>Dump</code>、<code>JSON</code> 是排错用的，分别导出原始字节、字段文本和整对象 JSON。<code>File</code> 里的 <code>Load</code> 是打开来看，<code>Extract</code> 是把包里的文件原样解到磁盘；<code>Reset</code> 清空当前加载，<code>Abort</code> 取消正在进行的加载或导出。</p>
+
+      <p><code>Select Game</code> 里先选 <code>Hoyo game</code>、<code>Encrypted game (pick if unsure)</code> 或 <code>Other</code>；不确定就选第二项。自动识别 Unity 版本失败时，在 <code>Options → Specify Unity version</code> 里填版本再重新加载。<code>Resolve dependencies</code> 默认开启，会跨包找依赖；关掉后只拿当前包，材质或贴图可能缺。<code>App Theme</code> 有 System、Dark、Light 三档；切换后要重启才生效，Dark 仍是 beta。</p>
+
+      <p><code>Maps → Open Asset Browser</code> 打开的是资产地图浏览器，用来读取以前构建的 <code>.map</code> 或 <code>.json</code> 并搜索、比对，不是当前包的资产列表。具体做法见 <a href="batch.html">批量与资产地图</a>。</p>
+      <p><code>About</code> 没有下拉项，点一下直接打开关于窗口，里面有版本、x64/x32、MIT 许可证和项目链接。</p>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-bar"><b>File</b><span>Options</span><span>Export</span><span>Filter Type</span><span>Maps</span><span>About</span></div>
+          <div class="ui-body">
+            <p><strong>File</strong>　Load file · Load folder · Extract file · Extract folder · Reset · Abort · Exit</p>
+            <p><strong>Options</strong>　Select Game · Specify Unity version · Export options · App Theme · Advanced</p>
+            <p><strong>Export</strong>　All assets · Selected assets · Filtered assets · Raw / Dump / JSON · Models</p>
+            <p><strong>Filter Type</strong>　All · Texture2D · Sprite · AudioClip · Mesh · TextAsset</p>
+            <p><strong>Maps</strong>　Asset Map → Build · Open Asset Browser · CAB Map · Asset Index → Load from file</p>
+            <p><strong>About</strong>　直接打开关于窗口</p>
+          </div>
+        </div>
+        <figcaption>六个菜单管的是六段流程：打开、配置、导出、筛选、地图和关于。这里按真实菜单结构重画；Filter Type 里的类型会随每次加载变化。</figcaption>
+      </figure>
+
+      <h2 id="tabs">左栏的三张标签页</h2>
+      <p>三张标签页回答三个不同的问题，内容都来自同一批已加载的资产。</p>
+      <dl class="kv">
+        <div>
+          <dt>Scene Hierarchy</dt>
+          <dd>谁挂在谁下面？它把物理文件、SerializedFile 和 GameObject 搭成一棵树。它是从加载的文件里重建出来的，不是游戏的完整场景。</dd>
+        </div>
+        <div>
+          <dt>Asset List</dt>
+          <dd>这包里有哪些能导出的东西？它是扁平清单，负责筛选、搜索、排序和导出。</dd>
+        </div>
+        <div>
+          <dt>Asset Classes</dt>
+          <dd>这次加载碰到了哪些 Unity 类型？它按 Unity 版本分组，用 ID 和 Name 两列列出 ClassID 和类型名；选中一个类型，右栏会显示它的字段结构。</dd>
+        </div>
+      </dl>
+      <p>右栏的 <code>Preview</code> 和 <code>Dump</code> 两页共用同一块区域：<code>Preview</code> 用来查看资产外观，<code>Dump</code> 只显示当前对象的字段转储。平时看效果用 <code>Preview</code>；<code>Dump</code> 是排错用的第二现场，不参与导出，也不会改变文件内容。</p>
+
+      <h2 id="tree">场景树怎么读</h2>
+      <p>场景树最多三层。第一层是物理文件，例如某个 <code>.bundle</code>；第二层是 <code>SerializedFile</code>，也就是包里的 CAB 小盒；第三层是 <code>GameObject</code>。有些资产直接来自 <code>.assets</code> 文件，没有物理文件这一层，树就会从 SerializedFile 开始。</p>
+      <p>勾选是父节点向子节点单向传播。你勾上一个父节点，它下面的整棵子树都会被选中；反过来，勾子节点不会自动勾上父节点。导出模型时，程序从勾选节点开始收集，遇到已勾选的父节点就不再往下重复收集，所以“勾父等于选整棵子树”。</p>
+      <p>节点底色是浅蓝，表示这个节点自己或它的子节点里带模型。树里只画 GameObject；组件和 Mesh 不会单独成节点，但你在资产列表里右键选中一个 Mesh，可以用 <code>Go to scene hierarchy</code> 跳回它所属的 GameObject。</p>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-tabs">
+            <span class="ui-tab" aria-selected="true">Scene Hierarchy</span>
+            <span class="ui-tab" aria-selected="false">Asset List</span>
+            <span class="ui-tab" aria-selected="false">Asset Classes</span>
+          </div>
+          <div class="ui-body">
+            <div><b>[x] chapter01_assets_all.bundle</b></div>
+            <div>　└─ [x] CAB-3f2a9c…</div>
+            <div>　　├─ [x] Root</div>
+            <div>　　├─ [x] Avatar_Girl_Sword <i>（浅蓝底，有模型）</i></div>
+            <div>　　└─ [ ] Weapon_Sword_01</div>
+            <div class="ui-foot"><span>浅蓝底 = 有模型</span><span>勾父节点 = 选整棵子树</span></div>
+          </div>
+        </div>
+        <figcaption>场景树回答“谁挂在谁下面”。它按物理文件、SerializedFile、GameObject 三层搭起来；带浅蓝底的节点表示自己或子节点里有模型。</figcaption>
+      </figure>
+
+      <h2 id="columns">资产列表的 6 列</h2>
+      <p>列的顺序是写死的，从左到右固定为这 6 列。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>同一张表，换成人话就是：名字、包内路径、类型、编号、大小、指纹。</caption>
+          <thead>
+            <tr><th>列名</th><th>人话</th><th>注意</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>Name</code></td><td>资产名</td><td>没名字的资产会显示成 <code>Texture2D#123</code> 这种“类型 + 编号”。</td></tr>
+            <tr><td><code>Container</code></td><td>它在包里的路径</td><td>不是磁盘路径；没有恢复出容器时为空。</td></tr>
+            <tr><td><code>Type</code></td><td>Unity 类型名</td><td>常见的有 <code>Texture2D</code>、<code>Sprite</code>、<code>AudioClip</code>、<code>Mesh</code>、<code>TextAsset</code>。</td></tr>
+            <tr><td><code>PathID</code></td><td>包内编号</td><td>只在同一个 SerializedFile 里唯一，跨包比较会重复。</td></tr>
+            <tr><td><code>Size</code></td><td>序列化数据大小，单位字节</td><td>纹理、音频、视频会把外置流的大小加进来；不等于导出后的文件大小。</td></tr>
+            <tr><td><code>SHA256</code></td><td>内容指纹</td><td>表头叫 SHA256，这一版实际算的是 64 位 xxHash，显示成 16 位十六进制；适合比对两份原始数据，不要拿它做安全校验。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>点列头可以排序，再点一次反向。<code>Size</code> 和 <code>PathID</code> 按数字比，其余按字符串比，所以 <code>Asset10</code> 会排在 <code>Asset9</code> 前面。</p>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-tabs">
+            <span class="ui-tab" aria-selected="false">Scene Hierarchy</span>
+            <span class="ui-tab" aria-selected="true">Asset List</span>
+            <span class="ui-tab" aria-selected="false">Asset Classes</span>
+          </div>
+          <div class="ui-cols"><span>Name</span><span>Container</span><span>Type</span><span>PathID</span><span>Size</span><span>SHA256</span></div>
+          <div class="ui-rowline is-selected"><span>UI_AvatarIcon_Girl</span><span>ui/icon</span><span>Texture2D</span><span>128</span><span>188621</span><span>8f3a2c1d9e4b7a60</span></div>
+          <div class="ui-rowline"><span>UI_ItemIcon_Sword</span><span>ui/item</span><span>Sprite</span><span>129</span><span>65536</span><span>3c7d1e9a0b5f2c84</span></div>
+          <div class="ui-rowline"><span>BGM_MainTheme</span><span>audio/bgm</span><span>AudioClip</span><span>204</span><span>2202009</span><span>d41a8e6c2b7f9035</span></div>
+          <div class="ui-rowline"><span>Avatar_Girl_Sword</span><span>char/avatar</span><span>Mesh</span><span>331</span><span>1468006</span><span>9b2e7f4a1c8d3065</span></div>
+          <div class="ui-rowline"><span>Quest_Text_1001</span><span>text/quest</span><span>TextAsset</span><span>512</span><span>3891</span><span>5e8c1a3f7b2d9046</span></div>
+          <div class="ui-foot"><span>共 5 项</span><span>已选 1 项</span></div>
+        </div>
+        <figcaption>资产列表回答“这包里有哪些东西”。六列从左到右固定：名字、容器路径、类型、包内编号、字节大小、内容指纹。</figcaption>
+      </figure>
+
+      <h2 id="filter">过滤、搜索与排序</h2>
+      <p><code>Filter Type</code> 菜单除了常驻的 <code>All</code>，其余项目是每次加载后重新生成的，只列出这次真正出现过的类型。换一个包，旧类型会消失，这是正常行为，不是丢功能。</p>
+      <p>左栏有两个搜索框，都是<strong>正则</strong>，不是通配符。</p>
+      <ul>
+        <li>场景树搜索：输入后按 Enter，在整个树里找；按住 Ctrl 再按 Enter 会勾选结果，Shift 一次展开全部结果，Alt 跳到最顶层父节点。</li>
+        <li>资产列表搜索：输入后按 Enter，只在 <code>Name</code>、<code>Container</code>、<code>PathID</code> 三列里找，不搜 <code>Type</code>、<code>Size</code>、<code>SHA256</code>。</li>
+      </ul>
+      <div class="callout callout-warn">
+        <h3>正则不是通配符</h3>
+        <p><code>*</code> 在正则里不是“任意字符”。要匹配任意字符串用 <code>.*</code>，例如 <code>^UI_.*Icon$</code>。正则写错时，列表搜索会自己清空，树搜索只会在状态栏报错。</p>
+      </div>
+
+      <h2 id="preview">右栏：预览面板</h2>
+      <p>右栏有 <code>Preview</code> 和 <code>Dump</code> 两页。选中资产会自动预览；模型的 <code>GameObject</code> 和 <code>Animator</code> 预览默认关闭，需要先在 <code>Options → Advanced</code> 勾上 <code>Model preview enabled</code>，这个开关会保存。单独的 <code>Mesh</code> 不受这个开关限制。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>预览按资产类型分派；同一套预览入口，不同后端。</caption>
+          <thead>
+            <tr><th>类型</th><th>能做什么</th><th>不能做什么</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>图片（<code>Texture2D</code> / <code>Sprite</code>）</td><td>解码常见纹理格式（DXT/BC、ETC、ASTC、RGBA 等），显示尺寸和格式；Ctrl+R/G/B/A 开关通道；右键可 Copy Image。</td><td>解不了的格式只在状态栏提示 Unsupported image for preview。</td></tr>
+            <tr><td>音频（<code>AudioClip</code>）</td><td>用 FMOD 在内存里播放，有 Play、Pause、Stop、Loop、进度和音量；能导出 WAV。</td><td>不画波形。</td></tr>
+            <tr><td>模型（<code>Mesh</code> / <code>GameObject</code> / <code>Animator</code>）</td><td>用 OpenGL 看几何；左键旋转、右键平移、滚轮缩放；Ctrl+W 线框、Ctrl+S 光照/顶点色、Ctrl+N 原始/重算法线。</td><td>没有 UV、材质、贴图；正交投影；不播放动作。</td></tr>
+            <tr><td>字体（<code>Font</code>）</td><td>在进程内加载字体，按 8 档字号（12–72 pt）显示样张。</td><td>不会安装进 Windows 字体目录。</td></tr>
+            <tr><td>文本（<code>TextAsset</code> / <code>Shader</code> / <code>MonoBehaviour</code> / <code>AnimationClip</code>）</td><td>文本预览；Shader 显示反编译结果；MonoBehaviour 显示 JSON；AnimationClip 显示 YAML。</td><td>Shader 不编译；MonoBehaviour 类型认不出时会让你选 Assembly 文件夹；旧版动画不支持。</td></tr>
+            <tr><td>视频（<code>VideoClip</code> / <code>MovieTexture</code>）</td><td>只能导出。</td><td>不能预览，状态栏会提示 <code>Only supported export.</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-bar"><b>Preview</b><span>Texture2D · UI_AvatarIcon_Girl</span></div>
+          <div class="ui-body">
+            <p><strong>Width:</strong> 1024　<strong>Height:</strong> 1024　<strong>Format:</strong> BC7</p>
+            <p><strong>Channels:</strong> RGBA　<strong>Filter Mode:</strong> Bilinear</p>
+            <p><strong>Ctrl+R / G / B / A</strong> 开关通道；右键可 Copy Image。</p>
+          </div>
+          <div class="ui-foot"><span>图片已解码</span><span>1024 × 1024</span></div>
+        </div>
+        <figcaption>图片预览回答“这张贴图长什么样、通道对不对”。尺寸与格式来自资产信息，通道开关只影响屏幕显示。</figcaption>
+      </figure>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-bar"><b>Preview</b><span>AudioClip · BGM_MainTheme</span></div>
+          <div class="ui-body">
+            <p><strong>Compression format:</strong> Vorbis　<strong>22050 Hz</strong></p>
+            <p>[ Play ]　[ Pause ]　[ Stop ]　[ Loop ]</p>
+            <p>进度条可拖动，右侧是音量条；0:00.0 / 2:14.0。</p>
+          </div>
+          <div class="ui-foot"><span>FMOD 内存播放</span><span>可导出 WAV</span></div>
+        </div>
+        <figcaption>音频预览回答“这段音频是什么、能不能播”。播放走 FMOD，导出默认转成 WAV。</figcaption>
+      </figure>
+
+      <figure class="plate">
+        <div class="ui" data-ui>
+          <div class="ui-bar"><b>Preview</b><span>Mesh · Avatar_Girl_Sword</span></div>
+          <div class="ui-body">
+            <p><strong>OpenGL 3.3</strong>　左键旋转 · 右键平移 · 滚轮缩放</p>
+            <p><strong>Ctrl+W</strong> 线框　<strong>Ctrl+S</strong> 光照/顶点色　<strong>Ctrl+N</strong> 原始/重算法线</p>
+          </div>
+          <div class="ui-foot"><span>正交投影</span><span>无 UV / 材质 / 贴图</span></div>
+        </div>
+        <figcaption>模型预览回答“几何对不对”。它不回答“游戏里好不好看”，因为材质和贴图根本没有参与绘制。</figcaption>
+      </figure>
+
+      <p>右栏同一时间只显示一种预览；换选资产时，上一种预览会先被清掉，再按新类型重新打开，所以你不会同时看到两张图或两段音频。</p>
+
+      <h2 id="model">3D 预览的真实限制</h2>
+      <p>先把期待放对：它是“几何检查器”，不是游戏里的渲染器。模型预览只把顶点、法线和顶点色上传给 OpenGL；UV、材质、贴图都没有参与绘制。你看到的是灰模或顶点色模型，不是角色在游戏里的最终样子。</p>
+      <ul>
+        <li>投影是正交的，没有近大远小，像工程图。</li>
+        <li>不播放动作。预览 Animator 时传给转换器的是空的动作列表，所以只显示静态姿势。</li>
+        <li>没有 UV、材质、贴图，也没有游戏里的光照和后处理；光照只是按法线做的明暗。</li>
+        <li>左键旋转、右键平移、滚轮缩放；Ctrl+W 在填充、线框、填充加线框之间循环，Ctrl+S 在光照和顶点色之间切换，Ctrl+N 在原始法线和重算法线之间切换。</li>
+      </ul>
+      <div class="callout callout-warn">
+        <h3>别拿预览当最终效果</h3>
+        <p><code>GameObject</code> / <code>Animator</code> 的模型预览默认关闭。点模型没反应时，先去 <code>Options → Advanced → Model preview enabled</code> 勾上；要确认最终外观，请导出模型和贴图后在 Blender 或 Unity 里组装。</p>
+      </div>
+
+      <h2 id="export-options">Export Options</h2>
+      <p>入口在 <code>Options → Export options</code>。对话框分左右两组：左边 <code>Export</code> 管通用导出，右边 <code>Fbx</code> 管模型导出。</p>
+      <div class="table-wrap">
+        <table>
+          <caption>第一次用只需要改两处：图片格式和 FBX 版本，其余保持默认。</caption>
+          <thead>
+            <tr><th>选项</th><th>在哪</th><th>影响什么</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>Convert Texture2D</code> + Bmp / Png / Jpeg / Tga</td><td>左组 Export</td><td>贴图和立绘的导出格式，默认 Png；关掉 <code>Convert Texture2D</code> 会导出 <code>.tex</code> 原始纹理。</td></tr>
+            <tr><td><code>Convert AudioClip to WAV(PCM)</code></td><td>左组 Export</td><td>默认开，音频转 WAV；关掉则保留原压缩格式（转换器支持时）。</td></tr>
+            <tr><td><code>Group exported assets by</code></td><td>左组 Export</td><td>输出文件夹按 type name、container path、source file name 或 do not group 组织，默认按类型。</td></tr>
+            <tr><td><code>FBXVersion</code></td><td>右组 Fbx</td><td>6.1 到 7.5，默认 7.3；老软件打不开就换低版本。</td></tr>
+            <tr><td><code>FBXFormat</code></td><td>右组 Fbx</td><td>Binary 或 Ascii，默认 Binary。</td></tr>
+            <tr><td><code>Export skins</code> / <code>Export animations</code> / <code>Export blendshape</code> / <code>Export materials</code></td><td>右组 Fbx</td><td>决定 FBX 里带不带蒙皮、动作、形态键和材质；<code>Export materials</code> 默认关闭，开了会额外写 Materials 目录下的材质 JSON。</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>点 OK 会立即保存；Cancel 放弃本次修改；Reset 会把所有设置恢复默认并关闭对话框。<code>Open folder after export</code> 默认开启，导出完会弹出资源管理器。改完先点 OK，之后再导出就会按这套选项执行。</p>
+
+      <h2 id="known">三个已知问题</h2>
+      <p>这一版有几处菜单看起来能用，实际还没接好。不是你的操作问题。</p>
+      <div class="faq">
+        <details open>
+          <summary>三个勾选项为什么像没反应？</summary>
+          <div class="faq-body">
+            <p><code>Preview enabled</code>、<code>Display asset information</code>、<code>Filter models only</code> 在 <code>Options → Advanced</code> 里，但设计器没有接上它们的 <code>CheckedChanged</code>。</p>
+            <p><code>Preview enabled</code> 和 <code>Display asset information</code> 的勾选状态仍会被之后新选中的资产读取，所以只影响下一次选择：当前画面不会立刻刷新，重启也不会记住。<code>Filter models only</code> 完全不生效，因为筛选时读的是设置文件里的旧值。</p>
+            <p>替代办法：只想看模型，用 <code>Filter Type</code> 勾 <code>GameObject</code> 和 <code>Animator</code>；想控制模型预览，用已经接好的 <code>Model preview enabled</code>。</p>
+          </div>
+        </details>
+        <details>
+          <summary>Load from GitHub 为什么只有 None？</summary>
+          <div class="faq-body">
+            <p>负责拉版本列表的 <code>DropDownOpening</code> 没有接线，所以子项里永远只有 <code>None</code>。要用 Asset Index，走 <code>Maps → Asset Index → Load from file</code> 加载本地文件。</p>
+          </div>
+        </details>
+        <details>
+          <summary>Use bundle container name 为什么没改容器名？</summary>
+          <div class="faq-body">
+            <p>这个开关在 <code>Options → Asset loading</code> 里。代码虽然算出了新名字，最后仍把原始的 <code>m_Container.Key</code> 写进 <code>Container</code>；它实际只影响 <code>MiHoYoBinData</code> 的 <code>Container</code> 值。容器路径以 Asset Map / CAB Map 恢复出来的结果为准，别指望这个勾。</p>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <nav class="pager" aria-label="继续阅读">
+      <a href="batch.html"><span>下一页</span><b>批量与资产地图</b></a>
+      <a href="start.html"><span>或者</span><b>五分钟上手</b></a>
+    </nav>
+  </main>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <p class="foot-word">AnimeStudio</p>
+    <div class="foot-cols">
+      <div>
+        <h3>手册</h3>
+        <a href="start.html">五分钟上手</a>
+        <a href="gui.html">界面导览</a>
+        <a href="batch.html">批量与资产地图</a>
+        <a href="pipeline.html">它怎么工作</a>
+      </div>
+      <div>
+        <h3>继续</h3>
+        <a href="games.html">游戏与它们的锁</a>
+        <a href="faq.html">疑难解答</a>
+        <a href="dev.html">想改代码</a>
+      </div>
+      <div>
+        <h3>源码与下载</h3>
+        <a href="https://github.com/Escartem/AnimeStudio">GitHub 仓库</a>
+        <a href="https://nightly.link/Escartem/AnimeStudio/workflows/build/master/AnimeStudio-net10.zip">.NET 10 构建</a>
+        <a href="https://github.com/Escartem/AnimeStudio/wiki">官方 wiki</a>
+      </div>
+    </div>
+    <p class="foot-note">本手册依据仓库当前源码整理，行为以代码为准。AnimeStudio 是 Studio 与 AssetStudio 的衍生项目，作者 Escartem。请只处理你有权处理的文件，并遵守游戏的服务条款。</p>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>
