@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AnimeStudio.Application.Install;
 
 namespace AnimeStudio.Host;
 
@@ -28,6 +29,7 @@ internal sealed class HostService
     private AssetMapScanner.MapStats? _mapStats;
     private string? _mapStatsPath;
     private bool _mapStatsRunning;
+    private bool _installScanRunning;
 
     public HostService(Action<string> post, Func<string, string?> pickFolder, Action<string?> mapOutputFolder)
     {
@@ -90,6 +92,9 @@ internal sealed class HostService
             case "game.switch":
                 SetGame(GetString(root, "game") ?? Settings.Game, notify: true);
                 break;
+            case "games.scan":
+                QueueInstallScan(apply: true);
+                break;
             case "task.run":
                 _ = RunTaskAsync(root);
                 break;
@@ -134,6 +139,99 @@ internal sealed class HostService
         });
 
         QueueMapStats(force: false);
+
+        // First run (or a game that was never configured): look for the installs ourselves.
+        bool missingPath = false;
+        foreach (string game in new[] { GameInstallScanner.HonkaiStarRail, GameInstallScanner.ZenlessZoneZero })
+        {
+            if (!Settings.Profiles.TryGetValue(game, out GameProfile? profile) ||
+                string.IsNullOrWhiteSpace(profile.DataPath))
+            {
+                missingPath = true;
+                break;
+            }
+        }
+
+        if (missingPath)
+        {
+            QueueInstallScan(apply: true);
+        }
+    }
+
+    /// <summary>
+    /// Registry + filesystem discovery of installed games. Only fills paths that are still
+    /// empty: a manually chosen directory is never overwritten.
+    /// </summary>
+    private void QueueInstallScan(bool apply)
+    {
+        if (_installScanRunning)
+        {
+            Send(new { type = "games.scan.busy" });
+            return;
+        }
+
+        _installScanRunning = true;
+        Send(new { type = "games.scan.pending" });
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                List<string> roots = LauncherRegistry.GetGameRoots(
+                    message => Send(new { type = "log", level = "info", message = $"[host] {message}" }));
+
+                IReadOnlyList<DetectedInstall> installs = GameInstallScanner.Scan(roots);
+
+                var detected = new List<object>();
+                bool changed = false;
+
+                foreach (DetectedInstall install in installs)
+                {
+                    if (!Settings.Profiles.TryGetValue(install.Game, out GameProfile? profile))
+                    {
+                        profile = new GameProfile();
+                        Settings.Profiles[install.Game] = profile;
+                    }
+
+                    bool applied = false;
+                    if (apply && string.IsNullOrWhiteSpace(profile.DataPath) && Directory.Exists(install.GameDataPath))
+                    {
+                        profile.DataPath = install.GameDataPath;
+                        applied = true;
+                        changed = true;
+                    }
+
+                    detected.Add(new
+                    {
+                        game = install.Game,
+                        gameDataPath = install.GameDataPath,
+                        source = install.Source,
+                        applied,
+                    });
+                }
+
+                if (changed)
+                {
+                    SettingsStore.Save(Settings);
+                }
+
+                Send(new
+                {
+                    type = "games.detected",
+                    installs = detected,
+                    settings = SettingsDto(),
+                    state = StateDto(),
+                });
+            }
+            catch (Exception exception)
+            {
+                Send(new { type = "games.scan.failed", message = exception.Message });
+            }
+            finally
+            {
+                _installScanRunning = false;
+            }
+        });
     }
 
     private void SetGame(string game, bool notify)
@@ -162,6 +260,11 @@ internal sealed class HostService
         if (notify)
         {
             Send(new { type = "game.switched", settings = SettingsDto(), state = StateDto() });
+        }
+
+        if (string.IsNullOrWhiteSpace(Profile.DataPath))
+        {
+            QueueInstallScan(apply: true);
         }
 
         QueueMapStats(force: false);

@@ -100,6 +100,20 @@
           `索引统计：${fmt(message.totalEntries)} 资产 / ${fmt(message.sourceFiles)} 个文件 / ` +
           `Sprite ${fmt(message.sprites)} / Texture2D ${fmt(message.textures)}（${message.elapsedMs} ms）`);
         break;
+      case 'games.detected':
+        onGamesDetected(message);
+        break;
+      case 'games.scan.pending':
+        APP.setStatus('正在查找已安装的游戏…', true);
+        break;
+      case 'games.scan.busy':
+        APP.toast('正在查找中…');
+        break;
+      case 'games.scan.failed':
+        APP.setStatus('就绪');
+        APP.pushLog(`自动查找失败：${message.message}`);
+        APP.toast('自动查找失败，请手动选择目录');
+        break;
       case 'game.switched':
         state.mapStats = null;
         state.locale = '';
@@ -477,6 +491,27 @@
     }
   }
 
+  function onGamesDetected(message) {
+    applySettings(message.settings, message.state);
+    APP.setStatus('就绪');
+
+    const names = { SR: '星穹铁道', ZZZ: '绝区零' };
+    const installs = message.installs || [];
+    const applied = installs.filter((item) => item.applied);
+
+    installs.forEach((item) => {
+      APP.pushLog(`发现 ${names[item.game] || item.game}：${item.gameDataPath}${item.applied ? '（已采用）' : ''}`);
+    });
+
+    if (applied.length > 0) {
+      APP.toast(`已自动找到 ${applied.map((item) => names[item.game] || item.game).join('、')}`);
+    } else if (installs.length === 0) {
+      APP.toast('没有自动找到游戏，请点「更换」手动选择目录');
+    } else {
+      APP.toast('已找到安装，但当前路径是手动指定的，未覆盖');
+    }
+  }
+
   function escapeRegex(value) {
     return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
@@ -511,6 +546,13 @@
     if (hit('#buildIndex')) {
       stop(event);
       runTask('index');
+      return;
+    }
+
+    if (hit('#autoDetect')) {
+      stop(event);
+      call('games.scan');
+      APP.toast('正在查找已安装的游戏…');
       return;
     }
 
