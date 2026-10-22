@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers;
 using System.IO;
 using System.Linq;
@@ -20,6 +20,13 @@ namespace AnimeStudio
         public const string MapName = "Maps";
 
         public static bool Minimal = true;
+
+        /// <summary>
+        /// Set by <see cref="BuildAssetMap"/> when the map build threw. Callers use it to
+        /// turn a silent warning into a non-zero process exit code.
+        /// </summary>
+        public static bool LastMapBuildFailed;
+
         public static CancellationTokenSource tokenSource = new CancellationTokenSource();
 
         private static string BaseFolder = "";
@@ -376,6 +383,7 @@ namespace AnimeStudio
         public static async Task BuildAssetMap(string[] files, string mapName, Game game, string savePath, ExportListType exportListType, ClassIDType[] typeFilters = null, Regex[] nameFilters = null, Regex[] containerFilters = null)
         {
             Logger.Info("Building AssetMap...");
+            LastMapBuildFailed = false;
             try
             {
                 Progress.Reset();
@@ -397,6 +405,7 @@ namespace AnimeStudio
             }
             catch(Exception e)
             {
+                LastMapBuildFailed = true;
                 Logger.Warning($"AssetMap was not build, {e}");
             }
 
@@ -724,16 +733,34 @@ namespace AnimeStudio
             {
                 case ExportListType.MessagePack:
                     {
-                        using var stream = File.OpenRead(mapName);
-                        var assetMap = MessagePackSerializer.Deserialize<AssetMap>(stream, MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray));
-                        foreach(var entry in assetMap.AssetEntries)
+                        // A full HSR map is ~7.3M entries / ~2GB and deserializing it into
+                        // AssetEntry objects costs ~4GB of RAM. When the map is the raw
+                        // (uncompressed) CLI format, stream the matches instead.
+                        if (AssetMapScanner.IsRawAssetMap(mapName))
                         {
-                            var isNameMatch = nameFilter.Length == 0 || nameFilter.Any(x => x.IsMatch(entry.Name));
-                            var isContainerMatch = containerFilter.Length == 0 || containerFilter.Any(x => x.IsMatch(entry.Container));
-                            var isTypeMatch = typeFilter.Length == 0 || typeFilter.Any(x => x == entry.Type);
-                            if (isNameMatch && isContainerMatch && isTypeMatch)
+                            var scan = AssetMapScanner.SelectSources(mapName, typeFilter, nameFilter, containerFilter);
+                            foreach (var source in scan.Sources)
                             {
-                                matches.Add(entry.Source);
+                                matches.Add(source);
+                            }
+
+                            Logger.Info($"AssetMap scan: {scan.MatchedEntries:N0}/{scan.TotalEntries:N0} entries matched, " +
+                                        $"{scan.Sources.Count:N0} source file(s), " +
+                                        $"{scan.BytesConsumed / (1024 * 1024):N0} MB in {scan.Elapsed.TotalSeconds:F1} s");
+                        }
+                        else
+                        {
+                            using var stream = File.OpenRead(mapName);
+                            var assetMap = MessagePackSerializer.Deserialize<AssetMap>(stream, MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray));
+                            foreach(var entry in assetMap.AssetEntries)
+                            {
+                                var isNameMatch = nameFilter.Length == 0 || nameFilter.Any(x => x.IsMatch(entry.Name));
+                                var isContainerMatch = containerFilter.Length == 0 || containerFilter.Any(x => x.IsMatch(entry.Container));
+                                var isTypeMatch = typeFilter.Length == 0 || typeFilter.Any(x => x == entry.Type);
+                                if (isNameMatch && isContainerMatch && isTypeMatch)
+                                {
+                                    matches.Add(entry.Source);
+                                }
                             }
                         }
                     }

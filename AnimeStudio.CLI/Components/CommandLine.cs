@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.CommandLine;
@@ -10,11 +10,11 @@ namespace AnimeStudio.CLI
 {
     public static class CommandLine
     {
-        public static void Init(string[] args)
+        public static int Init(string[] args)
         {
             var rootCommand = RegisterOptions();
             var parseResult = CommandLineParser.Parse(rootCommand, args, new ParserConfiguration());
-            parseResult.Invoke(new InvocationConfiguration());
+            return parseResult.Invoke(new InvocationConfiguration());
         }
         public static RootCommand RegisterOptions()
         {
@@ -36,6 +36,8 @@ namespace AnimeStudio.CLI
             rootCommand.Options.Add(optionsBinder.Key);
             rootCommand.Options.Add(optionsBinder.AIFile);
             rootCommand.Options.Add(optionsBinder.DummyDllFolder);
+            rootCommand.Options.Add(optionsBinder.ExtractTextMap);
+            rootCommand.Options.Add(optionsBinder.Languages);
             rootCommand.Arguments.Add(optionsBinder.Input);
             rootCommand.Arguments.Add(optionsBinder.Output);
 
@@ -61,6 +63,8 @@ namespace AnimeStudio.CLI
         public byte Key { get; set; }
         public FileInfo AIFile { get; set; }
         public DirectoryInfo DummyDllFolder { get; set; }
+        public bool ExtractTextMap { get; set; }
+        public string[] Languages { get; set; }
         public FileInfo Input { get; set; }
         public DirectoryInfo Output { get; set; }
     }
@@ -82,6 +86,8 @@ namespace AnimeStudio.CLI
         public readonly Option<byte> Key;
         public readonly Option<FileInfo> AIFile;
         public readonly Option<DirectoryInfo> DummyDllFolder;
+        public readonly Option<bool> ExtractTextMap;
+        public readonly Option<string[]> Languages;
         public readonly Argument<FileInfo> Input;
         public readonly Argument<DirectoryInfo> Output;
 
@@ -153,6 +159,16 @@ namespace AnimeStudio.CLI
             {
                 Description = "Specify DummyDll path."
             };
+            ExtractTextMap = new Option<bool>("--textmap")
+            {
+                Description = "Extract localized TextMap tables from DesignData packs (no Unity bundle parsing)."
+            };
+            Languages = new Option<string[]>("--lang")
+            {
+                Description = "Locale(s) to extract with --textmap, e.g. zh-CN. Default: every installed language.",
+                AllowMultipleArgumentsPerToken = true,
+                HelpName = "zh-CN|en|ja|.."
+            };
             Input = new Argument<FileInfo>("input_path")
             {
                 Description = "Input file/folder."
@@ -207,6 +223,7 @@ namespace AnimeStudio.CLI
             AssetExportType.DefaultValueFactory = _ => ExportType.Convert;
             MapOp.DefaultValueFactory = _ => MapOpType.None;
             MapType.DefaultValueFactory = _ => ExportListType.XML;
+            Languages.DefaultValueFactory = _ => Array.Empty<string>();
         }
         
         public byte ParseKey(string value)
@@ -324,6 +341,8 @@ namespace AnimeStudio.CLI
             Key = parseResult.GetValue(Key),
             AIFile = parseResult.GetValue(AIFile),
             DummyDllFolder = parseResult.GetValue(DummyDllFolder),
+            ExtractTextMap = parseResult.GetValue(ExtractTextMap),
+            Languages = parseResult.GetValue(Languages),
             Input = parseResult.GetRequiredValue(Input),
             Output = parseResult.GetRequiredValue(Output)
         };

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -11,7 +11,22 @@ namespace AnimeStudio.CLI
 {
     public class Program
     {
-        public static void Main(string[] args) => CommandLine.Init(args);
+        /// <summary>
+        /// Non-zero when the run failed. Automation (and the AI iteration loop)
+        /// depends on this: a build/export that failed must not exit 0.
+        /// </summary>
+        public static int ExitCode;
+
+        public static int Main(string[] args)
+        {
+            var parseExitCode = CommandLine.Init(args);
+            if (parseExitCode != 0)
+            {
+                return parseExitCode;
+            }
+
+            return ExitCode;
+        }
 
         public static void Run(Options o)
         {
@@ -31,6 +46,7 @@ namespace AnimeStudio.CLI
                 {
                     Console.WriteLine("Invalid Game !!");
                     Console.WriteLine(GameManager.SupportedGames());
+                    ExitCode = 1;
                     return;
                 }
 
@@ -46,6 +62,23 @@ namespace AnimeStudio.CLI
                 Logger.FileLogging = Settings.Default.enableFileLogging;
                 AssetsHelper.Minimal = Settings.Default.minimalAssetMap;
                 AssetsHelper.SetUnityVersion(o.UnityVersion);
+
+                if (o.ExtractTextMap)
+                {
+                    // DesignData text extraction: independent of the Unity bundle pipeline.
+                    var textMapOptions = new AnimeStudio.Application.TextMap.TextMapExtractOptions
+                    {
+                        Languages = o.Languages,
+                        IncludeEmptyStrings = false,
+                    };
+
+                    ExitCode = AnimeStudio.Application.TextMap.TextMapCommand.Run(
+                        o.Input.FullName,
+                        o.Output.FullName,
+                        textMapOptions,
+                        message => Logger.Info(message));
+                    return;
+                }
 
                 TypeFlags.SetTypes(JsonConvert.DeserializeObject<Dictionary<ClassIDType, (bool, bool)>>(Settings.Default.types));
 
@@ -171,9 +204,20 @@ namespace AnimeStudio.CLI
                 {
                     Task.Run(() => AssetsHelper.BuildBoth(files, o.MapName, o.Input.FullName, game, o.Output.FullName, o.MapType, classTypeFilter, o.NameFilter, o.ContainerFilter)).Wait();
                 }
+                if (AssetsHelper.LastMapBuildFailed)
+                {
+                    Logger.Error("AssetMap build failed, see the warnings above.");
+                    ExitCode = ExitCode != 0 ? ExitCode : 3;
+                }
                 if (o.MapOp.Equals(MapOpType.None) || o.MapOp.HasFlag(MapOpType.Load))
                 {
                     var i = 0;
+
+                    if (files.Length == 0)
+                    {
+                        Logger.Warning("No assets matched the given filters; nothing to export.");
+                        return;
+                    }
 
                     var path = Path.GetDirectoryName(Path.GetFullPath(files[0]));
                     ImportHelper.MergeSplitAssets(path);
@@ -202,6 +246,7 @@ namespace AnimeStudio.CLI
             catch (Exception e)
             {
                 Console.WriteLine(e);
+                ExitCode = ExitCode != 0 ? ExitCode : 2;
             }
         }
     }

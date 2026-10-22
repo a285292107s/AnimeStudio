@@ -16,7 +16,7 @@ namespace ACLLibs
         private const string DLL_NAME = "AnimeStudio.ACL.MHY";
         static ACL()
         {
-            DllLoader.PreloadDll(DLL_NAME);
+            DllLoader.PreloadDll(DLL_NAME, archSpecific: false);
         }
         public static void DecompressClip(byte[] data, out float[] values, out float[] times)
         {
