@@ -71,6 +71,10 @@ internal sealed class TextTableStore
 
     public int Total(string locale) => _tables.TryGetValue(locale, out var rows) ? rows.Count : 0;
 
+    /// <summary>Read-only view of one language's rows (used to build a diff snapshot).</summary>
+    public IReadOnlyList<KeyValuePair<string, string>> Rows(string locale) =>
+        _tables.TryGetValue(locale, out var rows) ? rows : (IReadOnlyList<KeyValuePair<string, string>>)Array.Empty<KeyValuePair<string, string>>();
+
     public (int Total, List<KeyValuePair<string, string>> Rows) Query(
         string locale,
         string query,

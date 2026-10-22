@@ -91,6 +91,9 @@
       case 'task.done':
         onTaskDone(message);
         break;
+      case 'diff.result':
+        onDiff(message);
+        break;
       case 'task.failed':
         endTask();
         APP.toast(`任务失败：${message.message}`);
@@ -636,6 +639,43 @@
     }
   }
 
+  function onDiff(message) {
+    const text = message.text || {};
+    const images = message.images || {};
+
+    if (!message.hasPrevious) {
+      const version = message.version ? `（版本 ${message.version}）` : '';
+      APP.pushLog(`已记录基线快照${version}，下次导出后可查看变化`);
+      APP.toast('已记录基线快照');
+      return;
+    }
+
+    const parts = [];
+    if (text.added || text.removed || text.changed) {
+      parts.push(`文本 +${text.added} −${text.removed} ~${text.changed}`);
+    }
+    if (images.added || images.removed || images.changed) {
+      parts.push(`图片 +${images.added} −${images.removed} ~${images.changed}`);
+    }
+
+    const summary = parts.length ? parts.join('，') : '与上次快照一致';
+    APP.toast(summary);
+    APP.pushLog(`版本对比 ${message.previousVersion || '上次'} → ${message.version || '当前'}：${summary}`);
+
+    (text.samples || []).slice(0, 10).forEach((sample) => {
+      const tag = sample.newText == null ? '−' : sample.oldText == null ? '+' : '~';
+      const value = sample.newText || sample.oldText || '';
+      APP.pushLog(`${tag} 文本 ${sample.locale} ${sample.key}${value ? ' = ' + String(value).slice(0, 40) : ''}`);
+    });
+
+    (images.samples || []).slice(0, 10).forEach((sample) => {
+      const tag = sample.kind === 'added' ? '+' : sample.kind === 'removed' ? '−' : '~';
+      APP.pushLog(`${tag} 图片 ${sample.path}`);
+    });
+
+    state.lastDiff = message;
+  }
+
   function onGamesDetected(message) {
     applySettings(message.settings, message.state);
     APP.setStatus('就绪');
@@ -693,6 +733,14 @@
     if (hit('#settingsOpenOutput')) {
       stop(event);
       call('open.folder');
+      return;
+    }
+
+    if (hit('#settingsDiff')) {
+      stop(event);
+      closeSettings();
+      call('diff.run');
+      APP.toast('正在对比上次快照…');
       return;
     }
 
@@ -892,7 +940,7 @@
   }
 
   // 调试/自动化入口：CDP 探针可以用它触发真实任务与查询。
-  window.HOST = { runTask, loadText, loadImages, call, state };
+  window.HOST = { runTask, loadText, loadImages, call, state, diff: () => call('diff.run') };
 
   webview.postMessage({ type: 'hello' });
 })();

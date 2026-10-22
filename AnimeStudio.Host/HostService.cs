@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AnimeStudio.Application.Diff;
 using AnimeStudio.Application.Install;
 
 namespace AnimeStudio.Host;
@@ -95,6 +96,9 @@ internal sealed class HostService
                 break;
             case "games.scan":
                 QueueInstallScan(apply: true);
+                break;
+            case "diff.run":
+                _ = Task.Run(() => PublishDiff(save: false));
                 break;
             case "task.run":
                 _ = RunTaskAsync(root);
@@ -573,6 +577,12 @@ internal sealed class HostService
                 QueueMapStats(force: true);
             }
 
+            if (exitCode == 0 && kind is "text" or "images")
+            {
+                // Snapshot + diff is a few seconds of gzip work; do not hold up task.done.
+                _ = Task.Run(() => PublishDiff(save: true));
+            }
+
             Send(new
             {
                 type = "task.done",
@@ -819,6 +829,108 @@ internal sealed class HostService
         }
 
         (_images, _categories) = ImageIndex.Scan(GameRoot, Settings.OutputDirectory!);
+    }
+
+    /* ---------- version diff ---------- */
+
+    private string SnapshotPath() =>
+        string.IsNullOrWhiteSpace(Settings.OutputDirectory)
+            ? string.Empty
+            : Path.Combine(Settings.OutputDirectory!, ".cache", "snapshots", $"{Settings.Game}.json.gz");
+
+    /// <summary>
+    /// Builds a snapshot of the current output, compares it with the previous extraction and
+    /// (on export runs) stores the new baseline. First run just records the baseline.
+    /// </summary>
+    private void PublishDiff(bool save)
+    {
+        string path = SnapshotPath();
+        if (path.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            Snapshot? previous = SnapshotStore.Load(path);
+            Snapshot current = BuildSnapshot();
+            DiffResult diff = SnapshotDiff.Compare(previous, current);
+
+            // Export runs refresh the baseline; a manual compare only records it when missing.
+            bool wroteBaseline = save || previous is null;
+            if (wroteBaseline)
+            {
+                SnapshotStore.Save(path, current);
+            }
+
+            Send(new
+            {
+                type = "diff.result",
+                saved = wroteBaseline,
+                hasPrevious = diff.HasPrevious,
+                version = diff.Version,
+                previousVersion = diff.PreviousVersion,
+                text = new
+                {
+                    added = diff.TextAdded,
+                    removed = diff.TextRemoved,
+                    changed = diff.TextChanged,
+                    byLocale = diff.ByLocale,
+                    samples = diff.TextSamples,
+                },
+                images = new
+                {
+                    added = diff.ImagesAdded,
+                    removed = diff.ImagesRemoved,
+                    changed = diff.ImagesChanged,
+                    samples = diff.ImageSamples,
+                },
+            });
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidDataException)
+        {
+            Send(new { type = "log", level = "warn", message = $"[host] 版本对比失败：{exception.Message}" });
+        }
+    }
+
+    private Snapshot BuildSnapshot()
+    {
+        if (!_text.IsLoaded && GameRoot.Length > 0)
+        {
+            _text.Load(Path.Combine(GameRoot, "text"));
+        }
+
+        EnsureImageIndex();
+
+        var snapshot = new Snapshot
+        {
+            Game = Settings.Game,
+            CreatedAt = DateTimeOffset.Now.ToString("O"),
+            Version = _text.Version,
+        };
+
+        foreach (string locale in _text.Locales)
+        {
+            var rows = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> row in _text.Rows(locale))
+            {
+                rows[row.Key] = row.Value;
+            }
+
+            snapshot.Text[locale] = rows;
+        }
+
+        foreach (ImageItem image in _images)
+        {
+            snapshot.Images[image.RelativePath] = new ImageSnapshotEntry
+            {
+                Width = image.Width,
+                Height = image.Height,
+                Bytes = image.Bytes,
+            };
+        }
+
+        return snapshot;
     }
 
     private void OpenOutputFolder()

@@ -1008,3 +1008,6 @@ button { font: inherit; color: inherit; }
 .field--stack .pathrow input { flex: 1; }
 .welcome__actions--split { justify-content: space-between; align-items: center; }
 .welcome__actions-right { display: flex; gap: 8px; }
+
+.welcome__actions-left { display: flex; gap: 8px; }
+
