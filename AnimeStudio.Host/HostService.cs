@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AnimeStudio.Host;
 
@@ -364,13 +365,45 @@ internal sealed class HostService
 
         try
         {
+            double lastFraction = -1;
+            long stableTotal = -1;
+
             int exitCode = await _runner
-                .RunAsync(arguments, (line, isError) => Send(new
+                .RunAsync(arguments, (line, isError) =>
                 {
-                    type = "log",
-                    level = LevelOf(line, isError),
-                    message = line,
-                }), _taskCts.Token)
+                    Send(new
+                    {
+                        type = "log",
+                        level = LevelOf(line, isError),
+                        message = line,
+                    });
+
+                    if (!TryParseProgress(line, out double fraction, out long total))
+                    {
+                        return;
+                    }
+
+                    // A denominator that changes between lines means the CLI is reporting
+                    // per-bundle progress (each block has its own 1..N); that bar would jump
+                    // backwards, so switch the UI to an indeterminate pulse instead.
+                    bool stable = total <= 0 || stableTotal <= 0 || total == stableTotal;
+                    if (total > 0 && stableTotal <= 0)
+                    {
+                        stableTotal = total;
+                    }
+
+                    if (!stable)
+                    {
+                        Send(new { type = "task.progress", fraction = (double?)null, message = line });
+                        return;
+                    }
+
+                    if (lastFraction < 0 || Math.Abs(fraction - lastFraction) >= 0.01)
+                    {
+                        lastFraction = fraction;
+                        Send(new { type = "task.progress", fraction, message = line });
+                    }
+                }, _taskCts.Token)
                 .ConfigureAwait(false);
 
             ReloadOutputs(kind);
@@ -611,6 +644,37 @@ internal sealed class HostService
     }
 
     private void Send(object payload) => _post(JsonSerializer.Serialize(payload, JsonOptions));
+
+    private static readonly Regex BracketProgress = new(@"\[(\d+)\s*/\s*(\d+)\]", RegexOptions.Compiled);
+    private static readonly Regex PercentProgress = new(@"(\d{1,3})\s*%", RegexOptions.Compiled);
+
+    /// <summary>Pulls a fraction out of CLI output ("[5/41] …" or "进度 42%").</summary>
+    private static bool TryParseProgress(string line, out double fraction, out long total)
+    {
+        fraction = 0;
+        total = -1;
+
+        Match bracket = BracketProgress.Match(line);
+        if (bracket.Success &&
+            long.TryParse(bracket.Groups[1].Value, out long current) &&
+            long.TryParse(bracket.Groups[2].Value, out long count) &&
+            count > 0)
+        {
+            fraction = Math.Clamp((double)current / count, 0, 1);
+            total = count;
+            return true;
+        }
+
+        Match percent = PercentProgress.Match(line);
+        if (percent.Success && int.TryParse(percent.Groups[1].Value, out int value) && value is >= 0 and <= 100)
+        {
+            fraction = value / 100.0;
+            total = 100;
+            return true;
+        }
+
+        return false;
+    }
 
     private static string LevelOf(string line, bool isError)
     {

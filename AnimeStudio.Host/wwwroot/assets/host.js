@@ -65,6 +65,9 @@
       case 'task.started':
         onTaskStarted(message);
         break;
+      case 'task.progress':
+        onProgress(message);
+        break;
       case 'log':
         APP.pushLog(`[${message.level}] ${message.message}`);
         if (message.level === 'error') {
@@ -356,11 +359,95 @@
     state.taskRunning = true;
     APP.setStatus(`${label(message.kind)}进行中…`, true);
     APP.pushLog(`开始${label(message.kind)}`);
-    APP.switchTab('log');
+    showProgress(`正在${label(message.kind)}…`);
+  }
+
+  function showProgress(text) {
+    const progress = $('#indexProgress');
+    if (progress) {
+      progress.hidden = false;
+    }
+
+    const bar = $('#indexBar');
+    if (bar) {
+      bar.style.width = '0%';
+      bar.parentElement.classList.remove('is-indeterminate');
+    }
+
+    const textElement = $('#indexProgressText');
+    if (textElement) {
+      textElement.textContent = text;
+    }
+
+    const cancel = $('#taskCancel');
+    if (cancel) {
+      cancel.hidden = false;
+    }
+  }
+
+  function hideProgress() {
+    const progress = $('#indexProgress');
+    if (progress) {
+      progress.hidden = true;
+    }
+
+    const cancel = $('#taskCancel');
+    if (cancel) {
+      cancel.hidden = true;
+    }
+
+    const bar = $('#indexBar');
+    if (bar) {
+      bar.style.width = '0%';
+      bar.parentElement.classList.remove('is-indeterminate');
+    }
+  }
+
+  function onProgress(message) {
+    const progress = $('#indexProgress');
+    if (progress && progress.hidden) {
+      showProgress('进行中…');
+    }
+
+    const bar = $('#indexBar');
+    const textElement = $('#indexProgressText');
+    const detail = shortMessage(message.message);
+
+    if (message.fraction === null || message.fraction === undefined) {
+      if (bar) {
+        bar.style.width = '100%';
+        bar.parentElement.classList.add('is-indeterminate');
+      }
+
+      if (textElement) {
+        textElement.textContent = detail || '进行中…';
+      }
+    } else {
+      if (bar) {
+        bar.style.width = `${Math.round(message.fraction * 100)}%`;
+        bar.parentElement.classList.remove('is-indeterminate');
+      }
+
+      if (textElement) {
+        textElement.textContent = `${Math.round(message.fraction * 100)}%  ${detail}`.trim();
+      }
+    }
+
+    APP.setStatus(textElement?.textContent || '进行中…', true);
+  }
+
+  function shortMessage(value) {
+    if (!value) {
+      return '';
+    }
+
+    const text = String(value).replace(/^\[Info\]\s*/, '').trim();
+    return text.length > 48 ? `${text.slice(0, 48)}…` : text;
   }
 
   function endTask() {
     state.taskRunning = false;
+    hideProgress();
     APP.setStatus('就绪');
   }
 
@@ -394,6 +481,14 @@
       } else {
         loadImages($('#imageSearch').value || '', Math.max(0, state.imageOffset + step * IMAGE_PAGE));
       }
+      return;
+    }
+
+    if (hit('#taskCancel')) {
+      stop(event);
+      call('task.cancel');
+      APP.pushLog('已请求取消任务…');
+      APP.setStatus('正在取消…', true);
       return;
     }
 

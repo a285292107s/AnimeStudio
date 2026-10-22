@@ -911,3 +911,17 @@ button { font: inherit; color: inherit; }
 .pager[hidden] { display: none; }
 .pager .btn { min-width: 26px; }
 
+
+/* 真实任务进度：无确定百分比时用脉冲条 */
+.progress__bar.is-indeterminate i {
+  width: 100% !important;
+  opacity: 0.35;
+  animation: progress-pulse 1.2s ease-in-out infinite;
+}
+
+.progress .btn { margin-top: 8px; }
+
+@keyframes progress-pulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.55; }
+}
