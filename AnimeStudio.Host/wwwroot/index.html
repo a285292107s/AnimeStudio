@@ -177,6 +177,34 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+<div class="welcome" id="welcome" hidden>
+  <div class="welcome__card" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
+    <p class="welcome__eyebrow">首次使用 · 三步</p>
+    <h2 class="welcome__title" id="welcomeTitle">先把它指到你的游戏上</h2>
+    <p class="welcome__sub">路径会自动查找，找不到再手动选；索引整局只建一次。</p>
+    <ol class="welcome__steps">
+      <li class="welcome__step">
+        <span class="welcome__num">①</span>
+        <div class="welcome__body"><b>游戏目录</b><span id="welcomeGamePath">未找到</span></div>
+        <button class="btn btn--xs btn--ghost" id="welcomeDetect">自动查找</button>
+      </li>
+      <li class="welcome__step">
+        <span class="welcome__num">②</span>
+        <div class="welcome__body"><b>输出目录</b><span id="welcomeOutputPath">未选择</span></div>
+        <button class="btn btn--xs btn--ghost" id="welcomePickOutput">选择</button>
+      </li>
+      <li class="welcome__step">
+        <span class="welcome__num">③</span>
+        <div class="welcome__body"><b>建索引</b><span>扫描资源位置，几分钟</span></div>
+        <button class="btn btn--xs" id="welcomeBuildIndex">开始</button>
+      </li>
+    </ol>
+    <div class="welcome__actions">
+      <button class="btn btn--ghost" id="welcomeClose">先看看界面</button>
+    </div>
+  </div>
+</div>
+
 <script src="assets/app.js"></script>
 <script src="assets/host.js"></script>
 </body>

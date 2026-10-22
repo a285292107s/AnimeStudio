@@ -925,3 +925,66 @@ button { font: inherit; color: inherit; }
   0%, 100% { opacity: 0.2; }
   50% { opacity: 0.55; }
 }
+
+/* 首启动向导 */
+.welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(6, 6, 6, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.welcome[hidden] { display: none; }
+
+.welcome__card {
+  width: min(560px, calc(100vw - 40px));
+  padding: 26px 28px 22px;
+  background: var(--surface);
+  border: 1px solid var(--rule-strong);
+  border-left: 2px solid var(--accent);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%);
+}
+
+.welcome__eyebrow {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.welcome__title { margin: 0; font-family: var(--serif); font-size: 23px; font-weight: 600; }
+
+.welcome__sub { margin: 8px 0 18px; color: var(--muted); font-size: 12.5px; }
+
+.welcome__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+
+.welcome__step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #0d0d0d;
+  border: 1px solid var(--rule);
+}
+
+.welcome__num { font-family: var(--mono); color: var(--accent); }
+
+.welcome__body { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.welcome__body b { font-size: 12.5px; font-weight: 500; }
+
+.welcome__body span {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome__actions { margin-top: 16px; display: flex; justify-content: flex-end; }

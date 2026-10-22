@@ -32,6 +32,7 @@
     imageNames: new Map(),
     pendingExport: null,
     category: 'all',
+    wizardDismissed: false,
   };
 
   let seq = 0;
@@ -250,6 +251,30 @@
     put(1, mapStats ? fmt(mapStats.sourceFiles) : '—');
     put(4, mapStats ? fmt(mapStats.sprites) : '—');
     put(5, mapStats ? fmt(mapStats.textures) : '—');
+
+    updateWizard();
+  }
+
+  /// <summary>First-run guidance: only when something is still missing, and only until dismissed.</summary>
+  function updateWizard() {
+    const overlay = $('#welcome');
+    if (!overlay) {
+      return;
+    }
+
+    const hasOutput = Boolean(state.settings.outputDirectory);
+    const hasMap = Boolean(state.hostState?.mapExists);
+    overlay.hidden = state.wizardDismissed || (hasOutput && hasMap);
+
+    const gamePath = $('#welcomeGamePath');
+    if (gamePath) {
+      gamePath.textContent = state.settings.gameDataPath || '未找到，点「自动查找」或手动选择';
+    }
+
+    const outputPath = $('#welcomeOutputPath');
+    if (outputPath) {
+      outputPath.textContent = state.settings.outputDirectory || '未选择';
+    }
   }
 
   /* ---------- 真实数据加载 ---------- */
@@ -539,6 +564,33 @@
 
   document.addEventListener('click', (event) => {
     const hit = (selector) => event.target.closest(selector);
+
+    if (hit('#welcomeDetect')) {
+      stop(event);
+      call('games.scan');
+      return;
+    }
+
+    if (hit('#welcomePickOutput')) {
+      stop(event);
+      call('settings.pick', { target: 'output' });
+      return;
+    }
+
+    if (hit('#welcomeBuildIndex')) {
+      stop(event);
+      state.wizardDismissed = true;
+      updateWizard();
+      runTask('index');
+      return;
+    }
+
+    if (hit('#welcomeClose')) {
+      stop(event);
+      state.wizardDismissed = true;
+      updateWizard();
+      return;
+    }
 
     const filterChip = event.target.closest('#imageFilters [data-filter]');
     if (filterChip) {
