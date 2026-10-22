@@ -39,10 +39,10 @@ internal sealed class HostForm : Form
         Height = Math.Min((int)(workingArea.Height * 0.94), 1500);
         MinimumSize = new Size((int)(workingArea.Width * 0.55), (int)(workingArea.Height * 0.5));
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(10, 10, 10);
+        BackColor = System.Drawing.Color.FromArgb(10, 10, 10);
 
         _webView.Dock = DockStyle.Fill;
-        _webView.DefaultBackgroundColor = Color.FromArgb(10, 10, 10);
+        _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(10, 10, 10);
         Controls.Add(_webView);
 
         Load += async (_, _) => await InitializeAsync();

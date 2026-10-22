@@ -22,6 +22,7 @@
     taskRunning: false,
     timer: null,
     hostState: null,
+    mapStats: null,
   };
 
   let seq = 0;
@@ -80,6 +81,33 @@
       case 'task.busy':
         APP.toast('已有任务在进行中');
         break;
+      case 'map.stats':
+        state.mapStats = message;
+        paintChrome();
+        APP.setStatus('就绪');
+        APP.pushLog(
+          `索引统计：${fmt(message.totalEntries)} 资产 / ${fmt(message.sourceFiles)} 个文件 / ` +
+          `Sprite ${fmt(message.sprites)} / Texture2D ${fmt(message.textures)}（${message.elapsedMs} ms）`);
+        break;
+      case 'game.switched':
+        state.mapStats = null;
+        state.locale = '';
+        applySettings(message.settings, message.state);
+        APP.state.text = [];
+        APP.state.images = [];
+        APP.renderTextList();
+        APP.renderImageGrid();
+        loadText('');
+        loadImages('');
+        APP.toast(`已切换到 ${message.settings.game}`);
+        break;
+      case 'map.stats.pending':
+        APP.setStatus('正在统计索引…', true);
+        break;
+      case 'map.stats.failed':
+        APP.setStatus('就绪');
+        APP.pushLog(`索引统计失败：${message.message}`);
+        break;
       default:
         break;
     }
@@ -136,12 +164,17 @@
     if (current.textTables?.length) {
       const total = current.textTables.reduce((sum, table) => sum + (table.count || 0), 0);
       APP.state.data.stats.textEntries = total;
-      APP.state.data.languages = current.textTables.map((table) => ({
-        code: table.locale,
-        folder: table.locale,
-        label: table.locale,
-        entries: table.count,
-      }));
+      APP.state.data.languages = current.textTables
+        .map((table) => ({
+          code: table.locale,
+          folder: table.locale,
+          label: table.locale,
+          entries: table.count,
+        }))
+        .sort((left, right) => {
+          const rank = (code) => (code === 'zh-CN' ? 0 : code === 'zh-TW' ? 1 : code === 'ja' ? 2 : 3);
+          return rank(left.code) - rank(right.code);
+        });
     } else if (Array.isArray(current.textTables)) {
       APP.state.data.stats.textEntries = 0;
     }
@@ -158,6 +191,11 @@
     APP.renderTabs();
     APP.renderLanguageSelect();
 
+    const languageSelect = $('#textLang');
+    if (languageSelect && state.locale) {
+      languageSelect.value = state.locale;
+    }
+
     $('#gamePath').textContent = state.settings.gameDataPath || '未选择游戏目录（点「更换」）';
     $('#gamePath').title = state.settings.gameDataPath || '';
     $('#outDir').textContent = state.settings.outputDirectory || '未选择输出目录（点击选择）';
@@ -171,13 +209,19 @@
       : '还没有索引：点上面的「重建索引」';
     $('#indexMeta').title = state.settings.mapPath || '';
 
-    // 真实模式下还没有整图统计，先用 — 占位，避免显示 mock 数字。
+    // 统计来自索引（Host 后台扫描）；结果未到时用 — 占位，不显示 mock 数字。
     const values = document.querySelectorAll('#stats dd');
-    [0, 1, 4, 5].forEach((index) => {
+    const mapStats = state.mapStats;
+    const put = (index, text) => {
       if (values[index]) {
-        values[index].textContent = '—';
+        values[index].textContent = text;
       }
-    });
+    };
+
+    put(0, mapStats ? fmt(mapStats.totalEntries) : '—');
+    put(1, mapStats ? fmt(mapStats.sourceFiles) : '—');
+    put(4, mapStats ? fmt(mapStats.sprites) : '—');
+    put(5, mapStats ? fmt(mapStats.textures) : '—');
   }
 
   /* ---------- 真实数据加载 ---------- */
@@ -196,6 +240,10 @@
 
     if (response.locales?.length) {
       state.locale = response.locale || response.locales[0];
+      const select = $('#textLang');
+      if (select) {
+        select.value = state.locale;
+      }
     }
 
     APP.state.text = (response.rows || []).map(([hash, text]) => ({
@@ -336,8 +384,15 @@
 
     const game = hit('.game');
     if (game) {
-      // 让 app.js 的 mock 分支安静地跳过：先同步改掉当前游戏。
-      APP.state.gameId = game.dataset.game;
+      const id = game.dataset.game;
+      if (id === APP.state.gameId) {
+        return;
+      }
+
+      // 先同步改掉当前游戏，app.js 的 mock 分支看到相同 id 会直接返回。
+      APP.state.gameId = id;
+      APP.renderGames();
+      call('game.switch', { game: id });
     }
   }, true);
 

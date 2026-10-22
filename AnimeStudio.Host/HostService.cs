@@ -24,6 +24,10 @@ internal sealed class HostService
     private List<ImageItem> _images = [];
     private CancellationTokenSource? _taskCts;
 
+    private AssetMapScanner.MapStats? _mapStats;
+    private string? _mapStatsPath;
+    private bool _mapStatsRunning;
+
     public HostService(Action<string> post, Func<string, string?> pickFolder, Action<string?> mapOutputFolder)
     {
         _post = post;
@@ -34,6 +38,26 @@ internal sealed class HostService
     }
 
     public HostSettings Settings { get; }
+
+    /// <summary>Current game's paths (created on demand).</summary>
+    public GameProfile Profile
+    {
+        get
+        {
+            if (!Settings.Profiles.TryGetValue(Settings.Game, out GameProfile? profile))
+            {
+                profile = new GameProfile();
+                Settings.Profiles[Settings.Game] = profile;
+            }
+
+            return profile;
+        }
+    }
+
+    /// <summary>Each game owns a subdirectory of the shared output root.</summary>
+    public string GameRoot => string.IsNullOrWhiteSpace(Settings.OutputDirectory)
+        ? string.Empty
+        : Path.Combine(Settings.OutputDirectory!, Settings.Game);
 
     public void Handle(string rawJson)
     {
@@ -62,6 +86,9 @@ internal sealed class HostService
             case "settings.save":
                 HandleSave(root);
                 break;
+            case "game.switch":
+                SetGame(GetString(root, "game") ?? Settings.Game, notify: true);
+                break;
             case "task.run":
                 _ = RunTaskAsync(root);
                 break;
@@ -83,13 +110,13 @@ internal sealed class HostService
         }
     }
 
-    /* ---------- welcome / settings ---------- */
+    /* ---------- welcome / settings / game ---------- */
 
     private void SendWelcome()
     {
-        if (_text.Tables.Count == 0 && !string.IsNullOrEmpty(Settings.OutputDirectory))
+        if (_text.Tables.Count == 0 && GameRoot.Length > 0)
         {
-            _text.Load(Path.Combine(Settings.OutputDirectory, "text"));
+            _text.Load(Path.Combine(GameRoot, "text"));
         }
 
         Send(new
@@ -104,25 +131,62 @@ internal sealed class HostService
             settings = SettingsDto(),
             state = StateDto(),
         });
+
+        QueueMapStats(force: false);
+    }
+
+    private void SetGame(string game, bool notify)
+    {
+        if (string.IsNullOrWhiteSpace(game))
+        {
+            return;
+        }
+
+        if (!string.Equals(game, Settings.Game, StringComparison.OrdinalIgnoreCase))
+        {
+            Settings.Game = game;
+            SettingsStore.Save(Settings);
+
+            _text.Clear();
+            _images = [];
+            _mapStats = null;
+            _mapStatsPath = null;
+
+            if (GameRoot.Length > 0)
+            {
+                _text.Load(Path.Combine(GameRoot, "text"));
+            }
+        }
+
+        if (notify)
+        {
+            Send(new { type = "game.switched", settings = SettingsDto(), state = StateDto() });
+        }
+
+        QueueMapStats(force: false);
     }
 
     private object SettingsDto() => new
     {
         game = Settings.Game,
-        gameDataPath = Settings.GameDataPath,
+        gameDataPath = Profile.DataPath,
         outputDirectory = Settings.OutputDirectory,
+        gameRoot = GameRoot,
         cliPath = Settings.CliPath,
         mapPath = MapPath(),
-        indexName = Settings.IndexName,
+        indexName = Profile.IndexName,
+        profiles = Settings.Profiles.Keys,
     };
 
     private object StateDto() => new
     {
+        game = Settings.Game,
         mapExists = File.Exists(MapPath()),
         textTables = _text.Tables.Select(static table => new { locale = table.Locale, count = table.Count }),
         locales = _text.Locales,
         images = _images.Count,
         outputDirectory = Settings.OutputDirectory,
+        gameRoot = GameRoot,
     };
 
     private void HandlePick(JsonElement root)
@@ -143,7 +207,7 @@ internal sealed class HostService
         switch (target)
         {
             case "game":
-                Settings.GameDataPath = picked;
+                Profile.DataPath = picked;
                 break;
             case "output":
                 Settings.OutputDirectory = picked;
@@ -161,8 +225,13 @@ internal sealed class HostService
     {
         if (root.TryGetProperty("settings", out JsonElement settings) && settings.ValueKind == JsonValueKind.Object)
         {
-            Settings.Game = GetString(settings, "game") ?? Settings.Game;
-            Settings.GameDataPath = GetString(settings, "gameDataPath") ?? Settings.GameDataPath;
+            string? game = GetString(settings, "game");
+            if (!string.IsNullOrWhiteSpace(game) && game != Settings.Game)
+            {
+                Settings.Game = game;
+            }
+
+            Profile.DataPath = GetString(settings, "gameDataPath") ?? Profile.DataPath;
             Settings.CliPath = GetString(settings, "cliPath") ?? Settings.CliPath;
 
             string? output = GetString(settings, "outputDirectory");
@@ -182,6 +251,69 @@ internal sealed class HostService
         Send(new { type = "settings.changed", settings = SettingsDto(), state = StateDto() });
     }
 
+    /* ---------- map statistics ---------- */
+
+    private void QueueMapStats(bool force)
+    {
+        string mapPath = MapPath();
+        if (mapPath.Length == 0 || !File.Exists(mapPath))
+        {
+            return;
+        }
+
+        if (!force && _mapStats is not null && string.Equals(_mapStatsPath, mapPath, StringComparison.OrdinalIgnoreCase))
+        {
+            SendMapStats();
+            return;
+        }
+
+        if (_mapStatsRunning)
+        {
+            return;
+        }
+
+        _mapStatsRunning = true;
+        Send(new { type = "map.stats.pending" });
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                AssetMapScanner.MapStats stats = AssetMapScanner.ScanStats(mapPath);
+                _mapStats = stats;
+                _mapStatsPath = mapPath;
+                SendMapStats();
+            }
+            catch (Exception exception)
+            {
+                Send(new { type = "map.stats.failed", message = exception.Message });
+            }
+            finally
+            {
+                _mapStatsRunning = false;
+            }
+        });
+    }
+
+    private void SendMapStats()
+    {
+        if (_mapStats is null)
+        {
+            return;
+        }
+
+        Send(new
+        {
+            type = "map.stats",
+            totalEntries = _mapStats.TotalEntries,
+            sourceFiles = _mapStats.SourceFiles,
+            sprites = _mapStats.CountOf(ClassIDType.Sprite),
+            textures = _mapStats.CountOf(ClassIDType.Texture2D),
+            textAssets = _mapStats.CountOf(ClassIDType.TextAsset),
+            elapsedMs = (long)_mapStats.Elapsed.TotalMilliseconds,
+        });
+    }
+
     /* ---------- tasks ---------- */
 
     private async Task RunTaskAsync(JsonElement root)
@@ -195,8 +327,13 @@ internal sealed class HostService
         string kind = GetString(root, "kind") ?? string.Empty;
         JsonElement payload = root.TryGetProperty("payload", out JsonElement value) ? value : default;
 
-        string game = GetString(payload, "game") ?? Settings.Game;
-        string? gameDataPath = GetString(payload, "gameDataPath") ?? Settings.GameDataPath;
+        string requestedGame = GetString(payload, "game") ?? Settings.Game;
+        if (!string.Equals(requestedGame, Settings.Game, StringComparison.OrdinalIgnoreCase))
+        {
+            SetGame(requestedGame, notify: true);
+        }
+
+        string? gameDataPath = GetString(payload, "gameDataPath") ?? Profile.DataPath;
 
         if (string.IsNullOrWhiteSpace(gameDataPath) || !Directory.Exists(gameDataPath))
         {
@@ -213,7 +350,7 @@ internal sealed class HostService
         List<string> arguments;
         try
         {
-            arguments = BuildArguments(kind, game, gameDataPath, payload);
+            arguments = BuildArguments(kind, Settings.Game, gameDataPath, payload);
         }
         catch (InvalidOperationException exception)
         {
@@ -237,6 +374,11 @@ internal sealed class HostService
                 .ConfigureAwait(false);
 
             ReloadOutputs(kind);
+            if (kind == "index")
+            {
+                QueueMapStats(force: true);
+            }
+
             Send(new
             {
                 type = "task.done",
@@ -264,15 +406,13 @@ internal sealed class HostService
 
     private List<string> BuildArguments(string kind, string game, string gameDataPath, JsonElement payload)
     {
-        string outputRoot = Settings.OutputDirectory!;
-
         switch (kind)
         {
             case "index":
                 {
-                    string indexDirectory = Path.Combine(outputRoot, "index");
-                    string mapName = string.IsNullOrWhiteSpace(Settings.IndexName) ? "game" : Settings.IndexName;
-                    Settings.MapPath = Path.Combine(indexDirectory, mapName + ".map");
+                    string indexDirectory = Path.Combine(GameRoot, "index");
+                    string mapName = string.IsNullOrWhiteSpace(Profile.IndexName) ? "game" : Profile.IndexName;
+                    Profile.MapPath = Path.Combine(indexDirectory, mapName + ".map");
                     SettingsStore.Save(Settings);
 
                     return
@@ -289,7 +429,7 @@ internal sealed class HostService
                 {
                     var arguments = new List<string>
                     {
-                        gameDataPath, Path.Combine(outputRoot, "text"),
+                        gameDataPath, Path.Combine(GameRoot, "text"),
                         "--game", game,
                         "--textmap",
                     };
@@ -314,7 +454,7 @@ internal sealed class HostService
 
                     var arguments = new List<string>
                     {
-                        gameDataPath, Path.Combine(outputRoot, "ui"),
+                        gameDataPath, Path.Combine(GameRoot, "ui"),
                         "--game", game,
                         "--map_op", "AssetMap,Load",
                         "--map_type", "MessagePack",
@@ -347,18 +487,16 @@ internal sealed class HostService
 
     private void ReloadOutputs(string kind)
     {
-        string outputRoot = Settings.OutputDirectory!;
-
         switch (kind)
         {
             case "text":
-                _text.Load(Path.Combine(outputRoot, "text"));
+                _text.Load(Path.Combine(GameRoot, "text"));
                 break;
             case "images":
-                _images = ImageIndex.Scan(outputRoot);
+                _images = ImageIndex.Scan(GameRoot);
                 break;
             case "index":
-                Settings.MapPath = MapPath();
+                Profile.MapPath = MapPath();
                 SettingsStore.Save(Settings);
                 break;
         }
@@ -368,12 +506,30 @@ internal sealed class HostService
 
     private void HandleTextQuery(JsonElement root, int requestId)
     {
-        if (!_text.IsLoaded && !string.IsNullOrEmpty(Settings.OutputDirectory))
+        if (!_text.IsLoaded && GameRoot.Length > 0)
         {
-            _text.Load(Path.Combine(Settings.OutputDirectory, "text"));
+            _text.Load(Path.Combine(GameRoot, "text"));
         }
 
-        string locale = GetString(root, "locale") ?? _text.Locales.FirstOrDefault() ?? "zh-CN";
+        string[] locales = _text.Locales;
+        string? requested = GetString(root, "locale");
+
+        // The UI clears its locale when switching games; fall back to the first installed one
+        // instead of querying an empty locale (which would return 0 and zero out the counters).
+        string locale;
+        if (!string.IsNullOrWhiteSpace(requested) && locales.Contains(requested, StringComparer.OrdinalIgnoreCase))
+        {
+            locale = locales.First(candidate => candidate.Equals(requested, StringComparison.OrdinalIgnoreCase));
+        }
+        else
+        {
+            // Prefer Simplified Chinese when installed, then Traditional, then whatever exists.
+            locale = locales.FirstOrDefault(candidate => candidate.Equals("zh-CN", StringComparison.OrdinalIgnoreCase))
+                     ?? locales.FirstOrDefault(candidate => candidate.Equals("zh-TW", StringComparison.OrdinalIgnoreCase))
+                     ?? locales.FirstOrDefault()
+                     ?? (string.IsNullOrWhiteSpace(requested) ? "zh-CN" : requested!);
+        }
+
         string query = GetString(root, "query") ?? string.Empty;
         int offset = GetInt(root, "offset") ?? 0;
         int limit = Math.Clamp(GetInt(root, "limit") ?? 200, 1, 1000);
@@ -387,16 +543,16 @@ internal sealed class HostService
             locale,
             total,
             offset,
-            locales = _text.Locales,
+            locales,
             rows = rows.Select(static row => new[] { row.Key, row.Value }),
         });
     }
 
     private void HandleImagesQuery(JsonElement root, int requestId)
     {
-        if (_images.Count == 0 && !string.IsNullOrEmpty(Settings.OutputDirectory))
+        if (_images.Count == 0 && GameRoot.Length > 0)
         {
-            _images = ImageIndex.Scan(Settings.OutputDirectory);
+            _images = ImageIndex.Scan(GameRoot);
         }
 
         string query = GetString(root, "query") ?? string.Empty;
@@ -420,14 +576,15 @@ internal sealed class HostService
 
     private void OpenOutputFolder()
     {
-        if (string.IsNullOrWhiteSpace(Settings.OutputDirectory) || !Directory.Exists(Settings.OutputDirectory))
+        string directory = GameRoot.Length > 0 ? GameRoot : Settings.OutputDirectory ?? string.Empty;
+        if (directory.Length == 0 || !Directory.Exists(directory))
         {
             return;
         }
 
         try
         {
-            Process.Start(new ProcessStartInfo("explorer.exe", Settings.OutputDirectory) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("explorer.exe", directory) { UseShellExecute = true });
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
@@ -439,9 +596,9 @@ internal sealed class HostService
 
     public string MapPath()
     {
-        if (!string.IsNullOrWhiteSpace(Settings.MapPath))
+        if (!string.IsNullOrWhiteSpace(Profile.MapPath))
         {
-            return Settings.MapPath!;
+            return Profile.MapPath!;
         }
 
         if (string.IsNullOrWhiteSpace(Settings.OutputDirectory))
@@ -449,8 +606,8 @@ internal sealed class HostService
             return string.Empty;
         }
 
-        string mapName = string.IsNullOrWhiteSpace(Settings.IndexName) ? "game" : Settings.IndexName;
-        return Path.Combine(Settings.OutputDirectory!, "index", mapName + ".map");
+        string mapName = string.IsNullOrWhiteSpace(Profile.IndexName) ? "game" : Profile.IndexName;
+        return Path.Combine(GameRoot, "index", mapName + ".map");
     }
 
     private void Send(object payload) => _post(JsonSerializer.Serialize(payload, JsonOptions));

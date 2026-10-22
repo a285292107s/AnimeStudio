@@ -18,6 +18,13 @@ internal sealed class TextTableStore
 
     public bool IsLoaded => _tables.Count > 0;
 
+    /// <summary>Drops the loaded tables (used when switching games).</summary>
+    public void Clear()
+    {
+        _tables.Clear();
+        Tables = [];
+    }
+
     public void Load(string textDirectory)
     {
         _tables.Clear();
