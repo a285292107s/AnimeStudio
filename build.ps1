@@ -80,6 +80,18 @@ foreach ($tfm in 'net10.0-windows') {
     Copy-Item "$guiOut/*" "$outputDir/bin" -Recurse -Force
     Copy-Item "$hostOut/*" "$outputDir/bin" -Recurse -Force
 
+    # sanity: a file locked by a running process silently leaves stale binaries in dist
+    foreach ($pair in @(@("$outputDir/bin/AnimeStudio.CLI.dll", "$cliOut/AnimeStudio.CLI.dll"),
+                        @("$outputDir/bin/AnimeStudio.Host.exe", "$hostOut/AnimeStudio.Host.exe"))) {
+        if ((Test-Path $pair[0]) -and (Test-Path $pair[1])) {
+            $copied = (Get-Item $pair[0]).LastWriteTimeUtc
+            $built = (Get-Item $pair[1]).LastWriteTimeUtc
+            if ($copied -lt $built) {
+                throw "dist is stale: '$($pair[0])' is older than the build output (locked by a running process?). Close AnimeStudio.Host/CLI and rebuild."
+            }
+        }
+    }
+
     # move launcher exes next to bin/
     foreach ($exe in 'AnimeStudio.GUI.exe', 'AnimeStudio.CLI.exe') {
         $from = "$outputDir/bin/$exe"
