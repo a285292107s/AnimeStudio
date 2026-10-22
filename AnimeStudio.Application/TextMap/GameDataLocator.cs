@@ -49,7 +49,13 @@ public static class GameDataLocator
     /// Accepts a game root, a <c>*_Data</c> directory, a <c>Persistent</c> directory or even a
     /// language folder, and returns the owning <c>*_Data</c> directory.
     /// </summary>
-    public static string ResolveDataDirectory(string input)
+    public static string ResolveDataDirectory(string input) => ResolveDataDirectory(input, HasDesignData);
+
+    /// <summary>
+    /// Same as <see cref="ResolveDataDirectory(string)"/>, but with a caller-supplied probe for
+    /// "this directory holds the data we care about" (DesignData for HSR, Blocks for ZZZ).
+    /// </summary>
+    public static string ResolveDataDirectory(string input, Func<string, bool> hasData)
     {
         string? current = Path.GetFullPath(input);
         if (current is not null && File.Exists(current))
@@ -59,7 +65,7 @@ public static class GameDataLocator
 
         for (int depth = 0; depth < 6 && current is not null; depth++)
         {
-            if (HasDesignData(current))
+            if (hasData(current))
             {
                 return current;
             }
@@ -71,7 +77,7 @@ public static class GameDataLocator
             }
 
             // A game install root usually holds exactly one "<Game>_Data" child.
-            if (HasDesignData(parent))
+            if (hasData(parent))
             {
                 return parent;
             }
@@ -84,14 +90,14 @@ public static class GameDataLocator
         if (Directory.Exists(root))
         {
             var candidates = Directory.GetDirectories(root, "*_Data", SearchOption.TopDirectoryOnly);
-            if (candidates.Length == 1 && HasDesignData(candidates[0]))
+            if (candidates.Length == 1 && hasData(candidates[0]))
             {
                 return candidates[0];
             }
         }
 
         throw new DirectoryNotFoundException(
-            $"No DesignData directory found under '{input}'. Point this at the game's \"<Game>_Data\" folder.");
+            $"No game data directory found under '{input}'. Point this at the game's \"<Game>_Data\" folder.");
     }
 
     public static GameDataLayout Locate(string input)
@@ -124,6 +130,11 @@ public static class GameDataLocator
     public static bool HasDesignData(string directory) =>
         Directory.Exists(Path.Combine(directory, "Persistent", "DesignData", "Windows")) ||
         Directory.Exists(Path.Combine(directory, "StreamingAssets", "DesignData", "Windows"));
+
+    /// <summary>ZZZ keeps its design data as design-data blocks instead of a DesignData tree.</summary>
+    public static bool HasBlockData(string directory) =>
+        Directory.Exists(Path.Combine(directory, "Persistent", "Blocks", "Data")) ||
+        Directory.Exists(Path.Combine(directory, "StreamingAssets", "Blocks", "Data"));
 
     private static void CollectPacks(string root, List<LanguagePack> packs, HashSet<string> seenLocales)
     {

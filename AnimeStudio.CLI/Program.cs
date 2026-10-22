@@ -65,7 +65,18 @@ namespace AnimeStudio.CLI
 
                 if (o.ExtractTextMap)
                 {
-                    // DesignData text extraction: independent of the Unity bundle pipeline.
+                    // Text extraction is independent of the Unity asset export pipeline.
+                    bool isZzz = game.Type.IsZZZ() || game.Type.IsZZZCB1() || game.Type.IsZZZCB2();
+                    if (isZzz)
+                    {
+                        ExitCode = ZzzTextCommand.Run(
+                            o.Input.FullName,
+                            o.Output.FullName,
+                            o.Languages,
+                            message => Logger.Info(message));
+                        return;
+                    }
+
                     var textMapOptions = new AnimeStudio.Application.TextMap.TextMapExtractOptions
                     {
                         Languages = o.Languages,
