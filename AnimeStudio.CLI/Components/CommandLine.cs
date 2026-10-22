@@ -26,6 +26,7 @@ namespace AnimeStudio.CLI
             rootCommand.Options.Add(optionsBinder.TypeFilter);
             rootCommand.Options.Add(optionsBinder.NameFilter);
             rootCommand.Options.Add(optionsBinder.ContainerFilter);
+            rootCommand.Options.Add(optionsBinder.DedupeNames);
             rootCommand.Options.Add(optionsBinder.GameName);
             rootCommand.Options.Add(optionsBinder.MapOp);
             rootCommand.Options.Add(optionsBinder.MapType);
@@ -53,6 +54,7 @@ namespace AnimeStudio.CLI
         public string[] TypeFilter { get; set; }
         public Regex[] NameFilter { get; set; }
         public Regex[] ContainerFilter { get; set; }
+        public bool DedupeNames { get; set; }
         public string GameName { get; set; }
         public MapOpType MapOp { get; set; }
         public ExportListType MapType { get; set; }
@@ -76,6 +78,7 @@ namespace AnimeStudio.CLI
         public readonly Option<string[]> TypeFilter;
         public readonly Option<Regex[]> NameFilter;
         public readonly Option<Regex[]> ContainerFilter;
+        public readonly Option<bool> DedupeNames;
         public readonly Option<string> GameName;
         public readonly Option<MapOpType> MapOp;
         public readonly Option<ExportListType> MapType;
@@ -120,6 +123,10 @@ namespace AnimeStudio.CLI
                 Description = "Specify container regex filter(s).",
                 AllowMultipleArgumentsPerToken = true,
                 CustomParser = ParseRegexFilter
+            };
+            DedupeNames = new Option<bool>("--dedupe_names")
+            {
+                Description = "Export only the first asset per (type, name) pair; avoids loading every block that has a same-named duplicate."
             };
             GameName = new Option<string>("--game")
             {
@@ -331,6 +338,7 @@ namespace AnimeStudio.CLI
             TypeFilter = parseResult.GetValue(TypeFilter),
             NameFilter = parseResult.GetValue(NameFilter),
             ContainerFilter = parseResult.GetValue(ContainerFilter),
+            DedupeNames = parseResult.GetValue(DedupeNames),
             GameName = parseResult.GetRequiredValue(GameName),
             MapOp = parseResult.GetValue(MapOp),
             MapType = parseResult.GetValue(MapType),

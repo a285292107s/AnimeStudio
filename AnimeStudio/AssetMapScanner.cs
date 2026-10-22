@@ -75,16 +75,17 @@ namespace AnimeStudio
             return first == FixArray2;
         }
 
-        public static ScanResult SelectSources(string path, ClassIDType[] typeFilter, Regex[] nameFilter, Regex[] containerFilter)
+        public static ScanResult SelectSources(string path, ClassIDType[] typeFilter, Regex[] nameFilter, Regex[] containerFilter, bool dedupeNames = false)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan);
-            return SelectSources(stream, typeFilter, nameFilter, containerFilter);
+            return SelectSources(stream, typeFilter, nameFilter, containerFilter, dedupeNames);
         }
 
-        public static ScanResult SelectSources(Stream stream, ClassIDType[] typeFilter, Regex[] nameFilter, Regex[] containerFilter)
+        public static ScanResult SelectSources(Stream stream, ClassIDType[] typeFilter, Regex[] nameFilter, Regex[] containerFilter, bool dedupeNames = false)
         {
             var stopwatch = Stopwatch.StartNew();
             var result = new ScanResult();
+            var seenNames = dedupeNames ? new HashSet<string>(StringComparer.Ordinal) : null;
 
             ForEachEntry(stream, out long bytesConsumed, (type, nameBuffer, nameLength, containerBuffer, containerLength, sourceBuffer, sourceLength) =>
             {
@@ -101,6 +102,14 @@ namespace AnimeStudio
                 }
 
                 if (!MatchesAnyRegex(containerFilter, containerBuffer, containerLength))
+                {
+                    return;
+                }
+
+                // Same name can exist in many blocks (SDK UI, per-scene atlases). Loading all of
+                // them is slow and the exports collide, so --dedupe_names keeps the first only.
+                if (seenNames is not null &&
+                    !seenNames.Add($"{(long)type}\u0000{Encoding.UTF8.GetString(nameBuffer, 0, nameLength)}"))
                 {
                     return;
                 }

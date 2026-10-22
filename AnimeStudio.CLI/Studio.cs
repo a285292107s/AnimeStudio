@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
@@ -390,7 +390,15 @@ namespace AnimeStudio.CLI
         public static void ExportAssets(string savePath, List<AssetItem> toExportAssets, AssetGroupOption assetGroupOption, ExportType exportType)
         {
             int toExportCount = toExportAssets.Count;
-            int exportedCount = 0;
+            if (toExportCount == 0)
+            {
+                return;
+            }
+
+            // The CLI exports one source file at a time, so the counters live at run level:
+            // printing a summary per file would hide the earlier (successful) ones.
+            _exportTotal += toExportCount;
+
             foreach (var asset in toExportAssets)
             {
                 string exportPath;
@@ -424,51 +432,83 @@ namespace AnimeStudio.CLI
                         break;
                 }
                 exportPath += Path.DirectorySeparatorChar;
-                Logger.Info($"[{exportedCount}/{toExportCount}] Exporting {asset.TypeString}: {asset.Text}");
+                Logger.Info($"[{_exportProcessed}/{_exportTotal}] Exporting {asset.TypeString}: {asset.Text}");
+                _exportProcessed++;
                 try
                 {
-                    switch (exportType)
+                    bool exported = exportType switch
                     {
-                        case ExportType.Raw:
-                            if (ExportRawFile(asset, exportPath))
-                            {
-                                exportedCount++;
-                            }
-                            break;
-                        case ExportType.Dump:
-                            if (ExportDumpFile(asset, exportPath))
-                            {
-                                exportedCount++;
-                            }
-                            break;
-                        case ExportType.Convert:
-                            if (ExportConvertFile(asset, exportPath))
-                            {
-                                exportedCount++;
-                            }
-                            break;
-                        case ExportType.JSON:
-                            if (ExportJSONFile(asset, exportPath))
-                            {
-                                exportedCount++;
-                            }
-                            break;
+                        ExportType.Raw => ExportRawFile(asset, exportPath),
+                        ExportType.Dump => ExportDumpFile(asset, exportPath),
+                        ExportType.Convert => ExportConvertFile(asset, exportPath),
+                        ExportType.JSON => ExportJSONFile(asset, exportPath),
+                        _ => false,
+                    };
+
+                    if (exported)
+                    {
+                        _exportExported++;
+                    }
+                    else
+                    {
+                        // TryExportFile returning false means the target already exists.
+                        _exportExisting++;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error($"Export {asset.Type}:{asset.Text} error\r\n{ex.Message}\r\n{ex.StackTrace}");
+                    // One unsupported texture/shader should not hide the rest of the batch, and a
+                    // full stack trace per asset drowns the log: keep it to one line per failure.
+                    _exportFailed++;
+                    string detail = Environment.GetEnvironmentVariable("ANIMESTUDIO_DEBUG_STACK") == "1"
+                        ? ex.ToString()
+                        : ex.Message;
+                    Logger.Warning($"Export {asset.TypeString}:{asset.Text} failed: {detail}");
                 }
             }
+        }
 
-            var statusText = exportedCount == 0 ? "Nothing exported." : $"Finished exporting {exportedCount} assets.";
+        private static int _exportTotal;
+        private static int _exportProcessed;
+        private static int _exportExported;
+        private static int _exportExisting;
+        private static int _exportFailed;
 
-            if (toExportCount > exportedCount)
+        public static void ResetExportStats()
+        {
+            _exportTotal = 0;
+            _exportProcessed = 0;
+            _exportExported = 0;
+            _exportExisting = 0;
+            _exportFailed = 0;
+        }
+
+        /// <summary>One summary for the whole run, after every source file has been exported.</summary>
+        public static void LogExportSummary()
+        {
+            if (_exportTotal == 0)
             {
-                statusText += $" {toExportCount - exportedCount} assets skipped (not extractable or files already exist)";
+                return;
             }
 
-            Logger.Info(statusText);
+            List<string> summary = [$"Finished exporting {_exportExported} assets."];
+
+            if (_exportExisting > 0)
+            {
+                summary.Add($"{_exportExisting} skipped (already exist).");
+            }
+
+            if (_exportFailed > 0)
+            {
+                summary.Add($"{_exportFailed} failed (unsupported format, see warnings).");
+            }
+
+            if (_exportExported == 0 && _exportExisting == 0 && _exportFailed == 0)
+            {
+                summary = ["Nothing exported."];
+            }
+
+            Logger.Info(string.Join(' ', summary));
         }
 
         public static void ExportAssetsMap(string savePath, List<AssetEntry> toExportAssets, string exportListName, ExportListType exportListType)

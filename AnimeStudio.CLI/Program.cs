@@ -204,7 +204,7 @@ namespace AnimeStudio.CLI
                 {
                     if (o.MapOp.HasFlag(MapOpType.Load))
                     {
-                        files = AssetsHelper.ParseAssetMap(o.MapName, o.MapType, classTypeFilter, o.NameFilter, o.ContainerFilter);
+                        files = AssetsHelper.ParseAssetMap(o.MapName, o.MapType, classTypeFilter, o.NameFilter, o.ContainerFilter, o.DedupeNames);
                     }
                     else
                     {
@@ -235,6 +235,7 @@ namespace AnimeStudio.CLI
                     var toReadFile = ImportHelper.ProcessingSplitFiles(files.ToList());
 
                     var fileList = new List<string>(toReadFile);
+                    Studio.ResetExportStats();
                     foreach (var file in fileList)
                     {
                         assetsManager.LoadFiles(file);
@@ -246,6 +247,7 @@ namespace AnimeStudio.CLI
                         exportableAssets.Clear();
                         assetsManager.Clear();
                     }
+                    Studio.LogExportSummary();
                 }
                 if (Properties.Settings.Default.scrapeMonos)
                 {

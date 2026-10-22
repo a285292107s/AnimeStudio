@@ -725,9 +725,10 @@ namespace AnimeStudio
             }));
         }
 
-        public static string[] ParseAssetMap(string mapName, ExportListType mapType, ClassIDType[] typeFilter, Regex[] nameFilter, Regex[] containerFilter)
+        public static string[] ParseAssetMap(string mapName, ExportListType mapType, ClassIDType[] typeFilter, Regex[] nameFilter, Regex[] containerFilter, bool dedupeNames = false)
         {
             var matches = new HashSet<string>();
+            var seenNames = dedupeNames ? new HashSet<string>(StringComparer.Ordinal) : null;
 
             switch (mapType)
             {
@@ -738,7 +739,7 @@ namespace AnimeStudio
                         // (uncompressed) CLI format, stream the matches instead.
                         if (AssetMapScanner.IsRawAssetMap(mapName))
                         {
-                            var scan = AssetMapScanner.SelectSources(mapName, typeFilter, nameFilter, containerFilter);
+                            var scan = AssetMapScanner.SelectSources(mapName, typeFilter, nameFilter, containerFilter, dedupeNames);
                             foreach (var source in scan.Sources)
                             {
                                 matches.Add(source);
@@ -759,6 +760,11 @@ namespace AnimeStudio
                                 var isTypeMatch = typeFilter.Length == 0 || typeFilter.Any(x => x == entry.Type);
                                 if (isNameMatch && isContainerMatch && isTypeMatch)
                                 {
+                                    if (seenNames is not null && !seenNames.Add($"{(long)entry.Type}\u0000{entry.Name}"))
+                                    {
+                                        continue;
+                                    }
+
                                     matches.Add(entry.Source);
                                 }
                             }
