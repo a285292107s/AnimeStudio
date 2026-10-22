@@ -45,11 +45,12 @@ internal static class ImageIndex
             string thumbRelative = $".cache/thumbs/{relativeToUrlRoot}";
 
             (int width, int height) = ReadPngSize(path);
+            string name = Path.GetFileNameWithoutExtension(path);
 
             items.Add(new ImageItem(
-                Path.GetFileNameWithoutExtension(path),
+                name,
                 relativeToScanRoot,
-                CategoryOf(relativeToUrlRoot),
+                CategoryOf(relativeToUrlRoot, name),
                 UrlPrefix + Escape(relativeToUrlRoot),
                 UrlPrefix + Escape(thumbRelative),
                 thumbRelative,
@@ -111,20 +112,68 @@ internal static class ImageIndex
         }
     }
 
-    /// <summary>Turns "SR/ui/assets/asbres/spriteoutput/ui/quest/x.png" into "spriteoutput/ui/quest".</summary>
-    private static string CategoryOf(string relativeToUrlRoot)
+    /// <summary>
+    /// Turns "SR/ui/assets/asbres/spriteoutput/ui/quest/x.png" into "spriteoutput/ui/quest".
+    /// ZZZ has no asset paths (its containers are numeric IDs), so it falls back to a readable
+    /// name prefix ("pc", "ps5", "icon", …) instead of a meaningless number.
+    /// </summary>
+    private static string CategoryOf(string relativeToUrlRoot, string name)
     {
         string[] parts = relativeToUrlRoot.Split('/');
         int asbres = Array.FindIndex(parts, static part => part.Equals("asbres", StringComparison.OrdinalIgnoreCase));
 
         if (asbres >= 0 && parts.Length > asbres + 2)
         {
-            return string.Join('/', parts.Skip(asbres + 1).Take(3));
+            string category = string.Join('/', parts.Skip(asbres + 1).Take(3));
+            if (!IsNumericCategory(category))
+            {
+                return category;
+            }
         }
 
-        // Fallback: first two directory segments (after <game>/ui/).
-        IEnumerable<string> directories = parts.Take(Math.Max(0, parts.Length - 1)).Skip(2);
-        return string.Join('/', directories.Take(2));
+        // Fallback: first two directory segments after <game>/ui/.
+        string directoryCategory = string.Join('/', parts.Take(Math.Max(0, parts.Length - 1)).Skip(2).Take(2));
+        if (directoryCategory.Length > 0 &&
+            !IsNumericCategory(directoryCategory) &&
+            !directoryCategory.Equals("Sprite", StringComparison.OrdinalIgnoreCase) &&
+            !directoryCategory.Equals("Texture2D", StringComparison.OrdinalIgnoreCase))
+        {
+            return directoryCategory;
+        }
+
+        return NamePrefix(name);
+    }
+
+    /// <summary>Numeric containers ("10000015666548753987") or empty path segments carry no meaning.</summary>
+    private static bool IsNumericCategory(string category)
+    {
+        if (string.IsNullOrWhiteSpace(category))
+        {
+            return true;
+        }
+
+        foreach (string part in category.Split('/'))
+        {
+            if (part.Length > 0 && !part.All(char.IsDigit))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>"pc_btn_primary_default" -> "pc"; "bubble_tooltip_arrow" -> "bubble".</summary>
+    private static string NamePrefix(string name)
+    {
+        string prefix = name.Split('_', '-', ' ')[0].ToLowerInvariant();
+
+        if (prefix.Length is < 2 or > 12 || !prefix.All(char.IsLetter))
+        {
+            return "其他";
+        }
+
+        return prefix;
     }
 
     private static string Escape(string relativePath) =>

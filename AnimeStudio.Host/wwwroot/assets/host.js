@@ -34,6 +34,7 @@
     category: 'all',
     wizardDismissed: false,
     hintShown: false,
+    taskStartedAt: 0,
   };
 
   let seq = 0;
@@ -489,6 +490,7 @@
   function onTaskStarted(message) {
     state.taskRunning = true;
     state.hintShown = false;
+    state.taskStartedAt = Date.now();
     APP.setStatus(`${label(message.kind)}进行中…`, true);
     APP.pushLog(`开始${label(message.kind)}`);
     showProgress(`正在${label(message.kind)}…`);
@@ -561,11 +563,30 @@
       }
 
       if (textElement) {
-        textElement.textContent = `${Math.round(message.fraction * 100)}%  ${detail}`.trim();
+        textElement.textContent = `${Math.round(message.fraction * 100)}%${etaSuffix(message.fraction)}  ${detail}`.trim();
       }
     }
 
     APP.setStatus(textElement?.textContent || '进行中…', true);
+  }
+
+  function etaSuffix(fraction) {
+    if (!state.taskStartedAt || fraction <= 0.02) {
+      return '';
+    }
+
+    const elapsed = Date.now() - state.taskStartedAt;
+    const remaining = (elapsed * (1 - fraction)) / fraction;
+    return remaining >= 1000 ? ` · 剩余约 ${formatDuration(remaining)}` : '';
+  }
+
+  function formatDuration(milliseconds) {
+    const seconds = Math.round(milliseconds / 1000);
+    if (seconds < 90) {
+      return `${seconds} 秒`;
+    }
+
+    return `${Math.round(seconds / 60)} 分钟`;
   }
 
   function shortMessage(value) {

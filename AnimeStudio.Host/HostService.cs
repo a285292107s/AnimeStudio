@@ -678,6 +678,9 @@ internal sealed class HostService
                     string[] names = GetStringArray(payload, "names");
                     if (names.Length > 0)
                     {
+                        // Picking specific images should not load every block that happens to
+                        // contain a same-named duplicate.
+                        arguments.Add("--dedupe_names");
                         arguments.Add("--names");
                         arguments.AddRange(names);
                     }
@@ -914,6 +917,9 @@ internal sealed class HostService
 
         (new Regex("Access is denied|UnauthorizedAccess|0x80070005|拒绝访问", RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "没有权限访问目录：把输出目录换到可写位置，或以管理员身份运行。"),
+
+        (new Regex("Unable to read beyond the end of the stream|Cannot parse shader|unsupported texture", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+            "部分贴图为特殊格式（atlas-only / 非标准压缩），裁切时会跳过；缺图较多时优先导出 Texture2D。"),
 
         (new Regex("Not a raw \\(uncompressed\\) AssetMap|Corrupt AssetMap|MessagePack|Deserialize", RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "地图文件损坏或版本不对：重建索引后再试。"),
