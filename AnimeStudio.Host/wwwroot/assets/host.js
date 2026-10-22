@@ -31,6 +31,7 @@
     imageTotal: 0,
     imageNames: new Map(),
     pendingExport: null,
+    category: 'all',
   };
 
   let seq = 0;
@@ -117,6 +118,8 @@
       case 'game.switched':
         state.mapStats = null;
         state.locale = '';
+        state.category = 'all';
+        APP.state.imageFilter = 'all';
         applySettings(message.settings, message.state);
         APP.state.text = [];
         APP.state.images = [];
@@ -292,9 +295,10 @@
     updatePagers();
   }
 
-  async function loadImages(query, offset = 0) {
+  async function loadImages(query, offset = 0, category = 'all') {
     const response = await call('images.query', {
       query: query || '',
+      category: category || 'all',
       offset: Math.max(0, offset),
       limit: IMAGE_PAGE,
     });
@@ -303,6 +307,7 @@
       return;
     }
 
+    state.category = category || 'all';
     state.imageOffset = response.offset || 0;
     state.imageTotal = response.total || 0;
 
@@ -310,10 +315,12 @@
       id: item.relativePath,
       name: item.name,
       file: item.url,
+      thumb: item.thumbUrl,
       w: item.width,
       h: item.height,
       kb: Math.round((item.bytes || 0) / 1024),
-      container: item.relativePath.replace(/\/[^/]+$/, ''),
+      category: item.category,
+      container: item.category,
       kind: 'Sprite',
       block: '',
     }));
@@ -323,9 +330,18 @@
       state.imageNames.set(item.relativePath, item.name);
     });
 
-    APP.state.data.stats.uiSprites = response.total || 0;
+    if (response.categories?.length) {
+      APP.state.data.containers = response.categories.map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        count: entry.count,
+      }));
+    }
+
+    APP.state.imageFilter = state.category;
+    APP.state.data.stats.uiSprites = response.available ?? response.total ?? 0;
     paintChrome();
-    $('#imageFilters').style.display = 'none';
+    $('#imageFilters').style.display = '';
     APP.renderImageGrid();
     updatePagers();
   }
@@ -347,11 +363,14 @@
     const imagePager = $('#imagePager');
     if (imagePager) {
       const show = state.imageTotal > IMAGE_PAGE;
-      imagePager.hidden = !show;
-      if (show) {
+      if (state.imageTotal > 0) {
         const from = state.imageOffset + 1;
         const to = Math.min(state.imageTotal, state.imageOffset + IMAGE_PAGE);
         $('#imagePageInfo').textContent = `${fmt(from)}-${fmt(to)} / ${fmt(state.imageTotal)}`;
+      }
+
+      imagePager.hidden = !show;
+      if (show) {
         imagePager.querySelector('[data-page="prev"]').disabled = state.imageOffset <= 0;
         imagePager.querySelector('[data-page="next"]').disabled = state.imageOffset + IMAGE_PAGE >= state.imageTotal;
       }
@@ -487,7 +506,7 @@
     if (message.kind === 'text') {
       loadText('');
     } else if (message.kind === 'images') {
-      loadImages('');
+      loadImages('', 0, state.category);
     }
   }
 
@@ -521,6 +540,14 @@
   document.addEventListener('click', (event) => {
     const hit = (selector) => event.target.closest(selector);
 
+    const filterChip = event.target.closest('#imageFilters [data-filter]');
+    if (filterChip) {
+      stop(event);
+      APP.state.imageFilter = filterChip.dataset.filter;
+      loadImages($('#imageSearch').value || '', 0, filterChip.dataset.filter);
+      return;
+    }
+
     const pageButton = event.target.closest('#textPager [data-page], #imagePager [data-page]');
     if (pageButton) {
       stop(event);
@@ -530,7 +557,7 @@
       if (isTextPager) {
         loadText($('#textSearch').value || '', Math.max(0, state.textOffset + step * TEXT_PAGE));
       } else {
-        loadImages($('#imageSearch').value || '', Math.max(0, state.imageOffset + step * IMAGE_PAGE));
+        loadImages($('#imageSearch').value || '', Math.max(0, state.imageOffset + step * IMAGE_PAGE), state.category);
       }
       return;
     }
@@ -643,7 +670,7 @@
       if (isText) {
         loadText(value);
       } else {
-        loadImages(value);
+        loadImages(value, 0, state.category);
       }
     }, 300);
   }, true);

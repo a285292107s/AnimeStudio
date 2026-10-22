@@ -1,47 +1,134 @@
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+
 namespace AnimeStudio.Host;
 
-internal sealed record ImageItem(string Name, string RelativePath, string Url, int Width, int Height, long Bytes);
+internal sealed record ImageItem(
+    string Name,
+    string RelativePath,
+    string Category,
+    string Url,
+    string ThumbUrl,
+    string ThumbRelativePath,
+    int Width,
+    int Height,
+    long Bytes);
+
+internal sealed record ImageCategory(string Id, string Label, int Count);
 
 /// <summary>
-/// Lists PNGs under the output directory and reads their dimensions.
-/// The images are served to the WebView through the <c>out.local</c> virtual host,
-/// so the page can use plain &lt;img&gt; tags instead of base64 payloads.
+/// Lists PNGs under a game's output directory and groups them into categories derived from
+/// the export path (e.g. <c>spriteoutput/ui/quest</c>). Thumbnails are generated on demand
+/// into a cache folder that is served through the same <c>out.local</c> virtual host, so the
+/// gallery never has to load multi-megabyte originals just to show a grid.
 /// </summary>
 internal static class ImageIndex
 {
     public const string VirtualHost = "out.local";
     public const string UrlPrefix = "https://out.local/";
+    private const int ThumbnailEdge = 160;
 
-    public static List<ImageItem> Scan(string outputDirectory, int maxItems = 200_000)
+    public static (List<ImageItem> Items, List<ImageCategory> Categories) Scan(string scanRoot, string urlRoot)
     {
         var items = new List<ImageItem>();
-        if (!Directory.Exists(outputDirectory))
+
+        if (!Directory.Exists(scanRoot) || !Directory.Exists(urlRoot))
         {
-            return items;
+            return (items, []);
         }
 
-        foreach (string path in Directory.EnumerateFiles(outputDirectory, "*.png", SearchOption.AllDirectories))
+        foreach (string path in Directory.EnumerateFiles(scanRoot, "*.png", SearchOption.AllDirectories))
         {
-            if (items.Count >= maxItems)
-            {
-                break;
-            }
+            string relativeToUrlRoot = Path.GetRelativePath(urlRoot, path).Replace('\\', '/');
+            string relativeToScanRoot = Path.GetRelativePath(scanRoot, path).Replace('\\', '/');
+            string thumbRelative = $".cache/thumbs/{relativeToUrlRoot}";
 
             (int width, int height) = ReadPngSize(path);
-            string relative = Path.GetRelativePath(outputDirectory, path).Replace('\\', '/');
 
             items.Add(new ImageItem(
                 Path.GetFileNameWithoutExtension(path),
-                relative,
-                UrlPrefix + Uri.EscapeDataString(relative).Replace("%2F", "/"),
+                relativeToScanRoot,
+                CategoryOf(relativeToUrlRoot),
+                UrlPrefix + Escape(relativeToUrlRoot),
+                UrlPrefix + Escape(thumbRelative),
+                thumbRelative,
                 width,
                 height,
                 new FileInfo(path).Length));
         }
 
         items.Sort(static (left, right) => string.Compare(left.RelativePath, right.RelativePath, StringComparison.OrdinalIgnoreCase));
-        return items;
+
+        List<ImageCategory> categories = items
+            .GroupBy(static item => item.Category, StringComparer.OrdinalIgnoreCase)
+            .Select(static group => new ImageCategory(group.Key, group.Key, group.Count()))
+            .OrderByDescending(static category => category.Count)
+            .Take(40)
+            .ToList();
+
+        return (items, categories);
     }
+
+    /// <summary>Creates (or refreshes) a 160px PNG thumbnail; transparent pixels are preserved.</summary>
+    public static void EnsureThumbnail(string sourcePath, string thumbPath)
+    {
+        try
+        {
+            var sourceInfo = new FileInfo(sourcePath);
+            if (!sourceInfo.Exists)
+            {
+                return;
+            }
+
+            var thumbInfo = new FileInfo(thumbPath);
+            if (thumbInfo.Exists && thumbInfo.LastWriteTimeUtc >= sourceInfo.LastWriteTimeUtc)
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(thumbPath)!);
+
+            using System.Drawing.Image source = System.Drawing.Image.FromFile(sourcePath);
+            double scale = Math.Min(1.0, (double)ThumbnailEdge / Math.Max(source.Width, source.Height));
+            int width = Math.Max(1, (int)Math.Round(source.Width * scale));
+            int height = Math.Max(1, (int)Math.Round(source.Height * scale));
+
+            using var thumb = new System.Drawing.Bitmap(width, height);
+            using (System.Drawing.Graphics graphics = System.Drawing.Graphics.FromImage(thumb))
+            {
+                graphics.Clear(System.Drawing.Color.Transparent);
+                graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                graphics.DrawImage(source, 0, 0, width, height);
+            }
+
+            thumb.Save(thumbPath, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or OutOfMemoryException)
+        {
+            // A broken PNG should not fail the whole gallery; the card falls back to the original URL.
+        }
+    }
+
+    /// <summary>Turns "SR/ui/assets/asbres/spriteoutput/ui/quest/x.png" into "spriteoutput/ui/quest".</summary>
+    private static string CategoryOf(string relativeToUrlRoot)
+    {
+        string[] parts = relativeToUrlRoot.Split('/');
+        int asbres = Array.FindIndex(parts, static part => part.Equals("asbres", StringComparison.OrdinalIgnoreCase));
+
+        if (asbres >= 0 && parts.Length > asbres + 2)
+        {
+            return string.Join('/', parts.Skip(asbres + 1).Take(3));
+        }
+
+        // Fallback: first two directory segments (after <game>/ui/).
+        IEnumerable<string> directories = parts.Take(Math.Max(0, parts.Length - 1)).Skip(2);
+        return string.Join('/', directories.Take(2));
+    }
+
+    private static string Escape(string relativePath) =>
+        Uri.EscapeDataString(relativePath).Replace("%2F", "/");
 
     private static (int Width, int Height) ReadPngSize(string path)
     {

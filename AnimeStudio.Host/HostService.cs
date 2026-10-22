@@ -24,6 +24,7 @@ internal sealed class HostService
     private readonly TextTableStore _text = new();
 
     private List<ImageItem> _images = [];
+    private List<ImageCategory> _categories = [];
     private CancellationTokenSource? _taskCts;
 
     private AssetMapScanner.MapStats? _mapStats;
@@ -248,6 +249,7 @@ internal sealed class HostService
 
             _text.Clear();
             _images = [];
+            _categories = [];
             _mapStats = null;
             _mapStatsPath = null;
 
@@ -289,6 +291,7 @@ internal sealed class HostService
         textTables = _text.Tables.Select(static table => new { locale = table.Locale, count = table.Count }),
         locales = _text.Locales,
         images = _images.Count,
+        categories = _categories,
         outputDirectory = Settings.OutputDirectory,
         gameRoot = GameRoot,
     };
@@ -629,7 +632,11 @@ internal sealed class HostService
                 _text.Load(Path.Combine(GameRoot, "text"));
                 break;
             case "images":
-                _images = ImageIndex.Scan(GameRoot);
+                if (!string.IsNullOrWhiteSpace(Settings.OutputDirectory))
+                {
+                    (_images, _categories) = ImageIndex.Scan(GameRoot, Settings.OutputDirectory!);
+                }
+
                 break;
             case "index":
                 Profile.MapPath = MapPath();
@@ -686,28 +693,63 @@ internal sealed class HostService
 
     private void HandleImagesQuery(JsonElement root, int requestId)
     {
-        if (_images.Count == 0 && GameRoot.Length > 0)
-        {
-            _images = ImageIndex.Scan(GameRoot);
-        }
+        EnsureImageIndex();
 
         string query = GetString(root, "query") ?? string.Empty;
+        string category = GetString(root, "category") ?? "all";
         int offset = Math.Max(0, GetInt(root, "offset") ?? 0);
         int limit = Math.Clamp(GetInt(root, "limit") ?? 120, 1, 500);
 
-        List<ImageItem> filtered = string.IsNullOrWhiteSpace(query)
-            ? _images
-            : _images.Where(item => item.Name.Contains(query.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        IEnumerable<ImageItem> filtered = _images;
 
-        Send(new
+        if (!string.IsNullOrWhiteSpace(query))
         {
-            type = "images.page",
-            requestId,
-            total = filtered.Count,
-            offset,
-            available = _images.Count,
-            items = filtered.Skip(offset).Take(limit),
+            string needle = query.Trim();
+            filtered = filtered.Where(item => item.Name.Contains(needle, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(category) && !category.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            filtered = filtered.Where(item => item.Category.StartsWith(category, StringComparison.OrdinalIgnoreCase));
+        }
+
+        List<ImageItem> matched = filtered.ToList();
+        List<ImageItem> page = matched.Skip(offset).Take(limit).ToList();
+        string urlRoot = Settings.OutputDirectory ?? string.Empty;
+        string gameRoot = GameRoot;
+
+        // Thumbnails are rendered off the message thread: the first page of a fresh export
+        // can need a hundred of them.
+        _ = Task.Run(() =>
+        {
+            foreach (ImageItem item in page)
+            {
+                ImageIndex.EnsureThumbnail(
+                    Path.Combine(gameRoot, item.RelativePath),
+                    Path.Combine(urlRoot, item.ThumbRelativePath));
+            }
+
+            Send(new
+            {
+                type = "images.page",
+                requestId,
+                total = matched.Count,
+                offset,
+                available = _images.Count,
+                categories = _categories,
+                items = page,
+            });
         });
+    }
+
+    private void EnsureImageIndex()
+    {
+        if (_images.Count > 0 || GameRoot.Length == 0 || string.IsNullOrWhiteSpace(Settings.OutputDirectory))
+        {
+            return;
+        }
+
+        (_images, _categories) = ImageIndex.Scan(GameRoot, Settings.OutputDirectory!);
     }
 
     private void OpenOutputFolder()

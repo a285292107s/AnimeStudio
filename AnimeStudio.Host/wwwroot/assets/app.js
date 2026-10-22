@@ -263,7 +263,7 @@
         return `
           <article class="card ${selected ? 'is-selected' : ''}" data-id="${image.id}" tabindex="0">
             <div class="card__thumb">
-              <img src="${image.file}" alt="${escapeAttr(image.name)}" loading="lazy">
+              <img src="${image.thumb || image.file}" alt="${escapeAttr(image.name)}" loading="lazy">
             </div>
             <div class="card__meta">
               <span class="card__name" title="${escapeAttr(image.name)}">${escapeHtml(image.name)}</span>
