@@ -298,6 +298,26 @@
 
   /* ---------- 详情面板 ---------- */
 
+  function inspectorIndexRows() {
+    const info = state.data.indexInfo;
+    const rows = [
+      metaRow('游戏', state.data.game?.name || '—'),
+      metaRow('数据版本', info?.version || state.data.game?.version || '—'),
+      metaRow('文本条目', fmt(state.data.stats.textEntries)),
+    ];
+
+    // Strings/empty counts only exist in the mock preview; the real pipeline stores JSON only.
+    if (!info) {
+      rows.push(metaRow('已解析字符串', fmt(state.data.stats.parsedStrings)));
+      rows.push(metaRow('空字符串', fmt(state.data.stats.emptyStrings)));
+    }
+
+    const bytes = info?.mapBytes ?? state.data.stats.indexBytes;
+    rows.push(metaRow('地图大小', bytes ? (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB' : '—'));
+    rows.push(metaRow('地图路径', info?.mapPath || '—'));
+    return rows.join('');
+  }
+
   function renderInspector() {
     const body = $('#panelBody');
     const preview = state.preview;
@@ -310,12 +330,7 @@
         <div class="panel__section">
           <h3 class="label">索引信息 <span>INDEX</span></h3>
           <dl class="meta">
-            ${metaRow('游戏', state.data.game.name)}
-            ${metaRow('数据版本', state.data.game.version)}
-            ${metaRow('文本条目', fmt(state.data.stats.textEntries))}
-            ${metaRow('已解析字符串', fmt(state.data.stats.parsedStrings))}
-            ${metaRow('空字符串', fmt(state.data.stats.emptyStrings))}
-            ${metaRow('地图大小', (state.data.stats.indexBytes / 1024 / 1024 / 1024).toFixed(2) + ' GB')}
+            ${inspectorIndexRows()}
           </dl>
         </div>`;
       return;

@@ -292,6 +292,18 @@ internal sealed class HostService
         locales = _text.Locales,
         images = _images.Count,
         categories = _categories,
+        indexInfo = new
+        {
+            game = Settings.Game,
+            version = _text.Version,
+            textEntries = _text.IsLoaded
+                ? _text.Total(_text.Locales.FirstOrDefault(candidate => candidate.Equals("zh-CN", StringComparison.OrdinalIgnoreCase))
+                              ?? _text.Locales.FirstOrDefault()
+                              ?? "zh-CN")
+                : 0,
+            mapBytes = SafeFileLength(MapPath()),
+            mapPath = MapPath(),
+        },
         outputDirectory = Settings.OutputDirectory,
         gameRoot = GameRoot,
     };
@@ -953,6 +965,18 @@ internal sealed class HostService
     }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static long SafeFileLength(string path)
+    {
+        try
+        {
+            return !string.IsNullOrWhiteSpace(path) && File.Exists(path) ? new FileInfo(path).Length : 0;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+    }
 
     private static int? GetInt(JsonElement element, string property)
     {

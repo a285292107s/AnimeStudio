@@ -221,6 +221,16 @@
       APP.state.data.stats.uiSprites = current.images;
     }
 
+    if (current.indexInfo) {
+      APP.state.data.indexInfo = current.indexInfo;
+      const names = { SR: '星穹铁道', ZZZ: '绝区零' };
+      APP.state.data.game = {
+        ...(APP.state.data.game || {}),
+        name: names[current.indexInfo.game] || current.indexInfo.game || '—',
+        version: current.indexInfo.version || '—',
+      };
+    }
+
     paintChrome();
   }
 
@@ -228,6 +238,7 @@
     APP.renderRail();
     APP.renderTabs();
     APP.renderLanguageSelect();
+    APP.renderInspector();
 
     const languageSelect = $('#textLang');
     if (languageSelect && state.locale) {

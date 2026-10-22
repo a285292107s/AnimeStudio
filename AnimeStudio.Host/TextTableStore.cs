@@ -16,6 +16,9 @@ internal sealed class TextTableStore
 
     public IReadOnlyList<TextTableInfo> Tables { get; private set; } = [];
 
+    /// <summary>Design-data version parsed from the HSR table name (e.g. "0.0.16566615"); null for ZZZ.</summary>
+    public string? Version { get; private set; }
+
     public bool IsLoaded => _tables.Count > 0;
 
     /// <summary>Drops the loaded tables (used when switching games).</summary>
@@ -23,11 +26,13 @@ internal sealed class TextTableStore
     {
         _tables.Clear();
         Tables = [];
+        Version = null;
     }
 
     public void Load(string textDirectory)
     {
         _tables.Clear();
+        Version = null;
 
         if (!Directory.Exists(textDirectory))
         {
@@ -44,6 +49,8 @@ internal sealed class TextTableStore
             {
                 continue;
             }
+
+            Version ??= ParseVersion(file);
 
             try
             {
@@ -105,6 +112,16 @@ internal sealed class TextTableStore
         }
 
         return string.Empty;
+    }
+
+    /// <summary>textmap.zh-CN.0.0.16566615 -> "0.0.16566615".</summary>
+    private static string? ParseVersion(string file)
+    {
+        string name = Path.GetFileNameWithoutExtension(file);
+        string[] parts = name.Split('.');
+        return parts.Length >= 3 && parts[0].Equals("textmap", StringComparison.OrdinalIgnoreCase)
+            ? string.Join('.', parts.Skip(2))
+            : null;
     }
 
     private static List<KeyValuePair<string, string>> LoadTable(string file)
