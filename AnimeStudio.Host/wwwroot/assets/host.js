@@ -157,9 +157,9 @@
     $('#modeChip').textContent = 'WebView2 宿主 · 真实数据';
     state.settings = message.settings || {};
 
-    if (message.state?.locales?.length) {
-      state.locale = message.state.locales[0];
-    }
+    // Leave the locale empty: the host picks zh-CN when installed, instead of the
+    // alphabetically first language (which is "ja" for ZZZ).
+    state.locale = '';
 
     // 两个游戏现在都走同一套真实管线，去掉 mock 里的「待验证」标记。
     (APP.state.data.games || []).forEach((game) => {
@@ -198,10 +198,13 @@
 
     const current = state.hostState || {};
 
+    // The host is the source of truth for the active game: sync it before rendering tabs.
+    if (current.game) {
+      APP.state.gameId = current.game;
+    }
+
     // Update the numbers first, then render once, then override the mock labels.
     if (current.textTables?.length) {
-      const total = current.textTables.reduce((sum, table) => sum + (table.count || 0), 0);
-      APP.state.data.stats.textEntries = total;
       APP.state.data.languages = current.textTables
         .map((table) => ({
           code: table.locale,
@@ -213,6 +216,10 @@
           const rank = (code) => (code === 'zh-CN' ? 0 : code === 'zh-TW' ? 1 : code === 'ja' ? 2 : 3);
           return rank(left.code) - rank(right.code);
         });
+
+      // 「文本条目」应表示当前语言的数量，而不是所有语言相加。
+      const activeTable = current.textTables.find((table) => table.locale === state.locale) || current.textTables[0];
+      APP.state.data.stats.textEntries = activeTable?.count ?? 0;
     } else if (Array.isArray(current.textTables)) {
       APP.state.data.stats.textEntries = 0;
     }
@@ -235,6 +242,7 @@
   }
 
   function paintChrome() {
+    APP.renderGames();
     APP.renderRail();
     APP.renderTabs();
     APP.renderLanguageSelect();
@@ -364,7 +372,9 @@
       source: response.locale,
     }));
 
-    APP.state.data.stats.textEntries = response.total || 0;
+    // Keep the rail/tab number at the full size of the active language, even while searching.
+    const activeTable = (state.hostState?.textTables || []).find((table) => table.locale === response.locale);
+    APP.state.data.stats.textEntries = activeTable?.count ?? response.total ?? 0;
     paintChrome();
     APP.renderTextList();
 
