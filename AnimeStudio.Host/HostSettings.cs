@@ -16,6 +16,12 @@ internal sealed class GameProfile
 
     /// <summary>This game's output directory (text/, ui/, index/ and .cache/ live here).</summary>
     public string? OutputDirectory { get; set; }
+
+    /// <summary>
+    /// Stable id written into the output folder (<c>.anime-studio.json</c>). If the folder is
+    /// renamed in Explorer, the host can find it again by this id instead of asking the user.
+    /// </summary>
+    public string? OutputId { get; set; }
 }
 
 /// <summary>Persisted host settings; the UI edits these through the message channel.</summary>

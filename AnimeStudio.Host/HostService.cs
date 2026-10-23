@@ -28,6 +28,7 @@ internal sealed class HostService
     private List<ImageCategory> _categories = [];
     private readonly object _imageGate = new();
     private int _imageVersion;
+    private readonly List<(string Game, string From, string To)> _outputSyncNotices = [];
     private CancellationTokenSource? _taskCts;
 
     private AssetMapScanner.MapStats? _mapStats;
@@ -125,6 +126,15 @@ internal sealed class HostService
             case "diff.run":
                 _ = Task.Run(() => PublishDiff(save: false));
                 break;
+            case "output.verify":
+                // Lightweight "did the output folder get renamed?" check (polled by the UI).
+                if (_taskCts is null)
+                {
+                    SynchronizeOutputPaths(notify: true);
+                }
+
+                Send(new { type = "ack", requestId, received = "output.verify" });
+                break;
             case "task.run":
                 _ = RunTaskAsync(root);
                 break;
@@ -153,6 +163,9 @@ internal sealed class HostService
 
     private void SendWelcome()
     {
+        // Follow output folders renamed in Explorer before reporting paths to the UI.
+        SynchronizeOutputPaths(notify: false);
+
         if (_text.Tables.Count == 0 && GameRoot.Length > 0)
         {
             _text.Load(Path.Combine(GameRoot, "text"));
@@ -167,9 +180,14 @@ internal sealed class HostService
                 cliPath = _runner.ResolveCliPath(),
                 settingsFile = "host.settings.json",
             },
+            outputSyncs = _outputSyncNotices
+                .Select(notice => new { game = notice.Game, from = notice.From, to = notice.To })
+                .ToArray(),
             settings = SettingsDto(),
             state = StateDto(),
         });
+
+        _outputSyncNotices.Clear();
 
         QueueMapStats(force: false);
 
@@ -273,6 +291,8 @@ internal sealed class HostService
         {
             return;
         }
+
+        SynchronizeOutputPaths(notify: notify);
 
         if (!string.Equals(game, Settings.Game, StringComparison.OrdinalIgnoreCase))
         {
@@ -415,6 +435,14 @@ internal sealed class HostService
 
         GameProfile profile = GetProfile(game);
         profile.OutputDirectory = directory;
+
+        // Stamp the folder so a later Explorer rename can be followed automatically.
+        string? outputId = profile.OutputId;
+        if (OutputLocator.TryEnsureMarker(directory, game, ref outputId))
+        {
+            profile.OutputId = outputId;
+        }
+
         _mapOutputFolder(directory);
 
         if (string.Equals(game, Settings.Game, StringComparison.OrdinalIgnoreCase))
@@ -536,6 +564,7 @@ internal sealed class HostService
         }
 
         SettingsStore.Save(Settings);
+        SynchronizeOutputPaths(notify: true);
         SendSettingsChanged();
 
         if (!string.Equals(previousMapPath, MapPath(), StringComparison.OrdinalIgnoreCase))
@@ -551,6 +580,127 @@ internal sealed class HostService
     private void SendSettingsChanged()
     {
         Send(new { type = "settings.changed", settings = SettingsDto(), state = StateDto() });
+    }
+
+    /// <summary>
+    /// Follows output folders that were renamed/moved in Explorer. Every configured folder gets
+    /// a <c>.anime-studio.json</c> marker with a stable id; when the saved path no longer exists
+    /// we search its parent/grandparent for that id and update the settings + map path in place.
+    /// </summary>
+    private void SynchronizeOutputPaths(bool notify)
+    {
+        bool changed = false;
+        bool activeChanged = false;
+        var notices = new List<(string Game, string From, string To)>();
+
+        foreach (string game in KnownGames())
+        {
+            if (!Settings.Profiles.TryGetValue(game, out GameProfile? profile))
+            {
+                continue;
+            }
+
+            string? configured = profile.OutputDirectory?.Trim();
+            if (string.IsNullOrWhiteSpace(configured))
+            {
+                continue;
+            }
+
+            string? outputId = profile.OutputId;
+            if (Directory.Exists(configured))
+            {
+                if (OutputLocator.TryEnsureMarker(configured, game, ref outputId))
+                {
+                    profile.OutputId = outputId;
+                    changed = true;
+                }
+
+                continue;
+            }
+
+            if (!OutputLocator.TryFindRenamed(configured, profile.OutputId, game, out string moved))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(profile.MapPath) && IsPathUnder(profile.MapPath, configured))
+            {
+                // The map usually lives in <output>\index; carry it over to the new folder.
+                profile.MapPath = moved + profile.MapPath![configured.Length..];
+            }
+
+            profile.OutputDirectory = moved;
+            outputId = profile.OutputId;
+            if (OutputLocator.TryEnsureMarker(moved, game, ref outputId))
+            {
+                profile.OutputId = outputId;
+            }
+
+            changed = true;
+            if (string.Equals(game, Settings.Game, StringComparison.OrdinalIgnoreCase))
+            {
+                activeChanged = true;
+            }
+
+            notices.Add((game, configured, moved));
+            LogInfo($"[host] {GameLabel(game)} 输出目录已移动，自动同步：{configured} → {moved}");
+        }
+
+        if (!changed)
+        {
+            return;
+        }
+
+        SettingsStore.Save(Settings);
+
+        if (activeChanged)
+        {
+            // Everything cached from the old path (text, gallery, map stats) is stale.
+            InvalidateImageIndex();
+            _text.Clear();
+            _mapStats = null;
+            _mapStatsPath = null;
+            _indexCacheBytes = 0;
+            _indexFormat = string.Empty;
+            if (notify)
+            {
+                QueueMapStats(force: true);
+            }
+        }
+
+        if (!notify)
+        {
+            _outputSyncNotices.AddRange(notices);
+            return;
+        }
+
+        foreach ((string game, string from, string to) in notices)
+        {
+            Send(new { type = "output.synced", game, from, to });
+        }
+
+        SendSettingsChanged();
+    }
+
+    private IEnumerable<string> KnownGames() =>
+        new[] { GameInstallScanner.HonkaiStarRail, GameInstallScanner.ZenlessZoneZero }
+            .Concat(Settings.Profiles.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>True when <paramref name="path"/> is <paramref name="root"/> or inside it.</summary>
+    private static bool IsPathUnder(string path, string root)
+    {
+        try
+        {
+            string normalizedPath = Path.GetFullPath(path);
+            string normalizedRoot = Path.GetFullPath(root)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return false;
+        }
     }
 
     /* ---------- map statistics ---------- */
@@ -632,6 +782,9 @@ internal sealed class HostService
             Send(new { type = "task.busy" });
             return;
         }
+
+        // A task must never write into a stale (renamed) path.
+        SynchronizeOutputPaths(notify: true);
 
         string kind = GetString(root, "kind") ?? string.Empty;
         JsonElement payload = root.TryGetProperty("payload", out JsonElement value) ? value : default;
@@ -1275,6 +1428,7 @@ internal sealed class HostService
 
     private void OpenOutputFolder()
     {
+        SynchronizeOutputPaths(notify: true);
         string directory = GameRoot;
         if (directory.Length == 0 || !Directory.Exists(directory))
         {

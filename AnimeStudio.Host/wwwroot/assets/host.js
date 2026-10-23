@@ -57,6 +57,7 @@
     progressSamples: [],
     imagesDirty: true,
     imagesLoading: false,
+    outputVerifyTimer: null,
   };
 
   let seq = 0;
@@ -194,6 +195,10 @@
         APP.pushLog(`自动查找失败：${message.message}`);
         APP.toast('自动查找失败，请手动选择目录');
         break;
+      case 'output.synced':
+        APP.pushLog(`输出目录已移动，自动同步：${message.from} → ${message.to}`);
+        APP.toast(`输出目录已移动：已同步到 ${message.to.split('\\').pop() || message.to}`);
+        break;
       case 'game.switched':
         state.mapStats = null;
         state.locale = '';
@@ -265,6 +270,21 @@
     APP.pushLog(`宿主已连接${message.host?.cliPath ? '：' + message.host.cliPath : '（未找到 CLI）'}`);
     if (!message.host?.cliPath) {
       APP.toast('未找到 AnimeStudio.CLI.exe，任务无法执行');
+    }
+
+    // A folder renamed while the host was closed is followed at startup.
+    (message.outputSyncs || []).forEach((notice) => {
+      APP.pushLog(`输出目录已移动，自动同步：${notice.from} → ${notice.to}`);
+      APP.toast(`输出目录已移动：已同步到 ${notice.to.split('\\').pop() || notice.to}`);
+    });
+
+    // Cheap safety net for renames while the window stays open.
+    if (!state.outputVerifyTimer) {
+      state.outputVerifyTimer = setInterval(() => {
+        if (!document.hidden && !state.taskRunning) {
+          call('output.verify');
+        }
+      }, 20000);
     }
   }
 
