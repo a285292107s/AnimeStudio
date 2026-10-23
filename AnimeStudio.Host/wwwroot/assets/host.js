@@ -54,9 +54,17 @@
     imagesDirty: true,
     imagesLoading: false,
     outputVerifyTimer: null,
+    assetsLoaded: false,
+    assetsDirty: true,
+    assetsLoading: false,
+    assetsQueued: false,
   };
 
   let seq = 0;
+
+  // Bumped whenever the rows on screen stop belonging to the current map (game switch,
+  // output change, rebuild). A query that resolves afterwards is dropped instead of painted.
+  let assetGeneration = 0;
 
   /// <summary>
   /// One source of truth for a game's export directory: the settings dialog rows and the rail
@@ -122,6 +130,9 @@
         }
         if (previousOutput !== outputPathFor()) {
           resetOutputViews();
+          if (document.querySelector('.tab.is-active')?.dataset.tab === 'assets') {
+            refreshAssets();
+          }
         }
         break;
       }
@@ -201,6 +212,10 @@
         APP.state.imageFilter = 'all';
         applySettings(message.settings, message.state);
         resetOutputViews();
+        resetAssets();
+        if (document.querySelector('.tab.is-active')?.dataset.tab === 'assets') {
+          refreshAssets();
+        }
         if ($('#settings') && !$('#settings').hidden) {
           fillSettingsForm();
         }
@@ -284,6 +299,9 @@
     APP.state.imageFilter = 'all';
     APP.state.data.containers = [];
     APP.renderImageGrid();
+
+    // The map lives under the output folder too, so its rows are stale as well.
+    resetAssets();
 
     // Do not scan the new output folder unless the gallery is actually open.
     setImagesDirty();
@@ -950,6 +968,23 @@
         ensureImagesLoaded();
       }
     }
+
+    if (message.kind === 'index') {
+      // A rebuilt map replaces every row the Asset Browser was showing, and the tab count
+      // belongs to the old file too. Re-query when the pane is (or was) in use; otherwise
+      // only mark it dirty so opening the tab picks up the new map.
+      const assetsVisible = document.querySelector('.tab.is-active')?.dataset.tab === 'assets';
+      const wasLoaded = state.assetsLoaded;
+      const refreshing = message.ok && (assetsVisible || wasLoaded);
+
+      resetAssets(message.ok
+        ? (refreshing ? '索引已更新，正在刷新…' : '索引已更新，打开「资源浏览」时刷新')
+        : '重建失败，列表已清空');
+
+      if (refreshing) {
+        refreshAssets();
+      }
+    }
   }
 
   function onDiff(message) {
@@ -980,26 +1015,103 @@
 
   /* ---------- 资源浏览（AssetMap 过滤） ---------- */
 
-  async function searchAssets() {
-    const filters = {
+  const ASSET_HINT =
+    '<div class="asset-table__empty">输入容器或名称后点「搜索」。容器支持子串匹配，例如 <code>spriteoutput/ui/fonts</code>。</div>';
+  const ASSET_NO_MAP =
+    '<div class="asset-table__empty">还没有 AssetMap：先在左侧点「重建索引」，完成后这里会自动刷新。</div>';
+
+  /// <summary>Filters currently typed into the Asset Browser toolbar.</summary>
+  function assetFilters() {
+    return {
       name: $('#assetName')?.value || '',
       container: $('#assetContainer')?.value || '',
       source: $('#assetSource')?.value || '',
       types: [$('#assetType')?.value || 'all'].filter((type) => type !== 'all'),
       limit: 300,
     };
+  }
 
-    APP.setStatus('正在扫描 AssetMap…', true);
-    const response = await call('assets.query', filters);
-    APP.setStatus('就绪');
+  /// <summary>Drops the rows read from the previous map and marks the pane as needing a query.</summary>
+  function resetAssets(note) {
+    // Bump the generation so a query still in flight for the old map cannot paint over the reset.
+    assetGeneration += 1;
+    state.assetsLoaded = false;
+    state.assetsDirty = true;
 
-    if (!response || response.type !== 'assets.page') {
-      APP.pushLog(`资源查询失败：${response?.message || '未知错误'}`);
-      APP.toast('资源查询失败');
+    const list = $('#assetList');
+    if (list) {
+      list.innerHTML = state.hostState?.mapExists ? ASSET_HINT : ASSET_NO_MAP;
+    }
+
+    const count = $('#assetCount');
+    if (count) {
+      count.textContent = note || '—';
+    }
+
+    const tabCount = $('#tabAssetCount');
+    if (tabCount) {
+      tabCount.textContent = '—';
+    }
+  }
+
+  /// <summary>
+  /// Re-reads the map: used by the Search button, by opening the tab, and after a rebuild —
+  /// a rebuilt map makes every row (and the tab count) that was on screen wrong.
+  /// </summary>
+  function refreshAssets() {
+    if (state.assetsLoading) {
+      // A reset arrived while the old map was still being scanned: redo it once it returns.
+      state.assetsQueued = true;
       return;
     }
 
-    renderAssets(response);
+    if (!state.hostState?.mapExists) {
+      resetAssets();
+      return;
+    }
+
+    searchAssets(assetFilters());
+  }
+
+  async function searchAssets(filters = assetFilters()) {
+    if (state.assetsLoading) {
+      return;
+    }
+
+    const generation = assetGeneration;
+    state.assetsLoading = true;
+    APP.setStatus('正在扫描 AssetMap…', true);
+    try {
+      const response = await call('assets.query', filters);
+
+      if (generation !== assetGeneration) {
+        return;
+      }
+
+      if (!response || response.type !== 'assets.page') {
+        APP.pushLog(`资源查询失败：${response?.message || '未知错误'}`);
+        APP.toast('资源查询失败');
+        const count = $('#assetCount');
+        if (count) {
+          count.textContent = response?.message || '查询失败';
+        }
+        return;
+      }
+
+      state.assetsLoaded = true;
+      state.assetsDirty = false;
+      renderAssets(response);
+    } finally {
+      state.assetsLoading = false;
+      if (!state.taskRunning) {
+        APP.setStatus('就绪');
+      }
+
+      if (state.assetsQueued) {
+        state.assetsQueued = false;
+        refreshAssets();
+      }
+    }
   }
 
   function renderAssets(response) {
@@ -1115,6 +1227,12 @@
     const tabHit = event.target.closest('.tab[data-tab]');
     if (tabHit && tabHit.dataset.tab === 'images') {
       setTimeout(ensureImagesLoaded, 0);
+    }
+
+    // 资源浏览同样延迟：第一次打开、索引重建后、换游戏/换目录后都重新查一次。
+    if (tabHit && tabHit.dataset.tab === 'assets' &&
+        (state.assetsDirty || !state.assetsLoaded)) {
+      setTimeout(refreshAssets, 0);
     }
 
     if (hit('#openSettings')) {
@@ -1367,6 +1485,7 @@
     state,
     diff: () => call('diff.run'),
     searchAssets,
+    refreshAssets,
   };
 
   webview.postMessage({ type: 'hello' });
