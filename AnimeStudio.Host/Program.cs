@@ -6,12 +6,50 @@ namespace AnimeStudio.Host;
 
 internal static class Program
 {
+    private static readonly string LogDirectory =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnimeStudio");
+
     [STAThread]
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
+
+        // The host must not die because one message handler or background continuation threw.
+        global::System.Windows.Forms.Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+        global::System.Windows.Forms.Application.ThreadException += (_, e) => LogAndReport(e.Exception, fatal: false);
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => LogAndReport(e.ExceptionObject as Exception, fatal: true);
+
         using var form = new HostForm();
         System.Windows.Forms.Application.Run(form);
+    }
+
+    internal static void LogAndReport(Exception? exception, bool fatal)
+    {
+        if (exception is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(LogDirectory);
+            File.AppendAllText(
+                Path.Combine(LogDirectory, "host-crash.log"),
+                $"[{DateTimeOffset.Now:O}] fatal={fatal}\n{exception}\n\n");
+        }
+        catch (Exception)
+        {
+            // Logging must never throw.
+        }
+
+        if (!fatal)
+        {
+            MessageBox.Show(
+                $"界面出现异常，已记录到 %LOCALAPPDATA%\\AnimeStudio\\host-crash.log，程序会继续运行。\n\n{exception.Message}",
+                "AnimeStudio",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 }
 
@@ -45,7 +83,17 @@ internal sealed class HostForm : Form
         _webView.DefaultBackgroundColor = System.Drawing.Color.FromArgb(10, 10, 10);
         Controls.Add(_webView);
 
-        Load += async (_, _) => await InitializeAsync();
+        Load += async (_, _) =>
+        {
+            try
+            {
+                await InitializeAsync();
+            }
+            catch (Exception exception)
+            {
+                Program.LogAndReport(exception, fatal: false);
+            }
+        };
     }
 
     private async Task InitializeAsync()
@@ -65,7 +113,24 @@ internal sealed class HostForm : Form
         _service = new HostService(PostJson, PickFolder, MapOutputFolder);
         MapOutputFolder(_service.Settings.OutputDirectory);
 
-        core.WebMessageReceived += (_, e) => _service?.Handle(e.WebMessageAsJson);
+        core.WebMessageReceived += (_, e) =>
+        {
+            try
+            {
+                _service?.Handle(e.WebMessageAsJson);
+            }
+            catch (Exception exception)
+            {
+                // One malformed request must never take the whole window down.
+                PostJson(JsonSerializer.Serialize(new
+                {
+                    type = "log",
+                    level = "error",
+                    message = $"[host] 处理消息失败：{exception.Message}",
+                }));
+                Program.LogAndReport(exception, fatal: false);
+            }
+        };
         core.Navigate($"https://{AppVirtualHost}/index.html");
     }
 

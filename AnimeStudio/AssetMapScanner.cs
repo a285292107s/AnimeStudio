@@ -57,6 +57,89 @@ namespace AnimeStudio
             public long CountOf(ClassIDType type) => TypeCounts.TryGetValue(type, out long value) ? value : 0;
         }
 
+        /// <summary>One matched map entry, materialised on demand for the Asset Browser.</summary>
+        public sealed record EntryInfo(
+            string Name,
+            string Container,
+            string Source,
+            long PathId,
+            ClassIDType Type,
+            string Hash);
+
+        public sealed class QueryResult
+        {
+            public long TotalEntries { get; set; }
+
+            public long MatchedEntries { get; set; }
+
+            public bool Truncated { get; set; }
+
+            public TimeSpan Elapsed { get; set; }
+
+            public List<EntryInfo> Items { get; } = [];
+
+            public HashSet<string> Sources { get; } = new(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Asset Browser query: filters by name/container/source/type while streaming the map,
+        /// returning at most <paramref name="limit"/> entries plus the real match count.
+        /// </summary>
+        public static QueryResult Query(
+            string path,
+            ClassIDType[] typeFilter,
+            Regex[] nameFilter,
+            Regex[] containerFilter,
+            Regex[] sourceFilter,
+            int limit)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var result = new QueryResult();
+            var items = result.Items;
+            var sources = result.Sources;
+            long matched = 0;
+            var utf8 = Encoding.UTF8;
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan);
+            ForEachEntry(stream, out _, out long totalEntries, (type, pathId, nameBuffer, nameLength, containerBuffer, containerLength, sourceBuffer, sourceLength, hashBuffer, hashLength) =>
+            {
+                if (!MatchesType((long)type, typeFilter))
+                {
+                    return;
+                }
+
+                if (!MatchesAnyRegex(nameFilter, nameBuffer, nameLength) ||
+                    !MatchesAnyRegex(containerFilter, containerBuffer, containerLength) ||
+                    !MatchesAnyRegex(sourceFilter, sourceBuffer, sourceLength))
+                {
+                    return;
+                }
+
+                matched++;
+                if (sourceLength > 0)
+                {
+                    sources.Add(utf8.GetString(sourceBuffer, 0, sourceLength));
+                }
+
+                if (items.Count < limit)
+                {
+                    items.Add(new EntryInfo(
+                        nameLength <= 0 ? string.Empty : utf8.GetString(nameBuffer, 0, nameLength),
+                        containerLength <= 0 ? string.Empty : utf8.GetString(containerBuffer, 0, containerLength),
+                        sourceLength <= 0 ? string.Empty : utf8.GetString(sourceBuffer, 0, sourceLength),
+                        pathId,
+                        type,
+                        hashLength <= 0 ? string.Empty : utf8.GetString(hashBuffer, 0, hashLength)));
+                }
+            });
+
+            result.TotalEntries = totalEntries;
+            result.MatchedEntries = matched;
+            result.Truncated = matched > items.Count;
+            result.Elapsed = stopwatch.Elapsed;
+            return result;
+        }
+
         public static bool IsRawAssetMap(string path)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
@@ -87,7 +170,7 @@ namespace AnimeStudio
             var result = new ScanResult();
             var seenNames = dedupeNames ? new HashSet<string>(StringComparer.Ordinal) : null;
 
-            ForEachEntry(stream, out long bytesConsumed, (type, nameBuffer, nameLength, containerBuffer, containerLength, sourceBuffer, sourceLength) =>
+            ForEachEntry(stream, out long bytesConsumed, out _, (type, _pathId, nameBuffer, nameLength, containerBuffer, containerLength, sourceBuffer, sourceLength, _hashBuffer, _hashLength) =>
             {
                 result.TotalEntries++;
 
@@ -139,7 +222,7 @@ namespace AnimeStudio
             long total = 0;
 
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan);
-            ForEachEntry(stream, out long bytesConsumed, (type, _nameBuffer, _nameLength, _containerBuffer, _containerLength, sourceBuffer, sourceLength) =>
+            ForEachEntry(stream, out long bytesConsumed, out _, (type, _pathId, _nameBuffer, _nameLength, _containerBuffer, _containerLength, sourceBuffer, sourceLength, _hashBuffer, _hashLength) =>
             {
                 total++;
                 counts[type] = counts.GetValueOrDefault(type) + 1;
@@ -161,7 +244,7 @@ namespace AnimeStudio
             };
         }
 
-        private static void ForEachEntry(Stream stream, out long consumedBytes, EntryVisitor visitor)
+        private static void ForEachEntry(Stream stream, out long consumedBytes, out long totalEntries, EntryVisitor visitor)
         {
             var reader = new BufferedStreamReader(stream);
 
@@ -192,25 +275,29 @@ namespace AnimeStudio
                 int nameLength = BufferReadString(reader, ref nameBuffer);
                 int containerLength = BufferReadString(reader, ref containerBuffer);
                 int sourceLength = BufferReadString(reader, ref sourceBuffer);
-                _ = BufferReadInteger(reader);      // PathID
+                long pathId = BufferReadInteger(reader);          // PathID
                 long type = BufferReadInteger(reader);
-                _ = BufferReadString(reader, ref hashBuffer);   // Hash (string or nil)
+                int hashLength = BufferReadString(reader, ref hashBuffer);   // Hash (string or nil)
                 _ = BufferReadInteger(reader);      // Offset
 
-                visitor((ClassIDType)type, nameBuffer, nameLength, containerBuffer, containerLength, sourceBuffer, sourceLength);
+                visitor((ClassIDType)type, pathId, nameBuffer, nameLength, containerBuffer, containerLength, sourceBuffer, sourceLength, hashBuffer, hashLength);
             }
 
             consumedBytes = reader.ConsumedBytes;
+            totalEntries = entryCount;
         }
 
         private delegate void EntryVisitor(
             ClassIDType type,
+            long pathId,
             byte[] name,
             int nameLength,
             byte[] container,
             int containerLength,
             byte[] source,
-            int sourceLength);
+            int sourceLength,
+            byte[] hash,
+            int hashLength);
 
         private static ulong Hash64(ReadOnlySpan<byte> data)
         {

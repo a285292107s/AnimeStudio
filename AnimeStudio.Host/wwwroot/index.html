@@ -76,6 +76,9 @@
       <button class="tab is-active" role="tab" aria-selected="true" data-tab="text">
         文本表 <em id="tabTextCount">—</em>
       </button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="assets" hidden>
+        资源浏览 <em id="tabAssetCount">—</em>
+      </button>
       <button class="tab" role="tab" aria-selected="false" data-tab="images">
         UI 图库 <em id="tabImageCount">—</em>
       </button>
@@ -119,6 +122,34 @@
           <div class="list__spacer" id="textSpacer"></div>
           <div class="list__window" id="textWindow"></div>
         </div>
+      </div>
+    </section>
+
+    <!-- 资源浏览（直接查 AssetMap，按容器/名称过滤） -->
+    <section class="pane" data-pane="assets" role="tabpanel" hidden>
+      <div class="toolbar toolbar--wrap">
+        <label class="field field--inline"><span>名称</span><input id="assetName" type="search" placeholder="名称包含…" autocomplete="off"></label>
+        <label class="field field--inline"><span>容器</span><input id="assetContainer" type="search" placeholder="如 spriteoutput/ui/fonts" autocomplete="off"></label>
+        <label class="field field--inline"><span>来源</span><input id="assetSource" type="search" placeholder="block / bundle 文件名" autocomplete="off"></label>
+        <label class="field field--inline">
+          <span>类型</span>
+          <select id="assetType">
+            <option value="all">全部</option>
+            <option value="Sprite">Sprite</option>
+            <option value="Texture2D">Texture2D</option>
+            <option value="TextAsset">TextAsset</option>
+            <option value="Font">Font</option>
+            <option value="Mesh">Mesh</option>
+            <option value="AudioClip">AudioClip</option>
+            <option value="MonoBehaviour">MonoBehaviour</option>
+          </select>
+        </label>
+        <button class="btn btn--accent btn--xs" id="assetSearch">搜索</button>
+        <button class="btn btn--ghost btn--xs" id="assetExport" title="把当前过滤条件交给 CLI 导出">导出过滤结果</button>
+        <span class="count" id="assetCount">—</span>
+      </div>
+      <div class="asset-table" id="assetList">
+        <div class="asset-table__empty">输入容器或名称后点「搜索」。容器支持子串匹配，例如 <code>spriteoutput/ui/fonts</code>。</div>
       </div>
     </section>
 

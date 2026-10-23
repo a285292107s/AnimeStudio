@@ -173,6 +173,12 @@
     });
     APP.renderGames();
 
+    // 资源浏览需要真实 AssetMap，只在宿主里出现。
+    const assetsTab = document.querySelector('.tab[data-tab="assets"]');
+    if (assetsTab) {
+      assetsTab.hidden = false;
+    }
+
     applySettings(message.settings, message.state);
 
     if (message.state?.textTables?.length) {
@@ -676,6 +682,109 @@
     state.lastDiff = message;
   }
 
+  /* ---------- 资源浏览（AssetMap 过滤） ---------- */
+
+  async function searchAssets() {
+    const filters = {
+      name: $('#assetName')?.value || '',
+      container: $('#assetContainer')?.value || '',
+      source: $('#assetSource')?.value || '',
+      types: [$('#assetType')?.value || 'all'].filter((type) => type !== 'all'),
+      limit: 300,
+    };
+
+    APP.setStatus('正在扫描 AssetMap…', true);
+    const response = await call('assets.query', filters);
+    APP.setStatus('就绪');
+
+    if (!response || response.type !== 'assets.page') {
+      APP.pushLog(`资源查询失败：${response?.message || '未知错误'}`);
+      APP.toast('资源查询失败');
+      return;
+    }
+
+    renderAssets(response);
+  }
+
+  function renderAssets(response) {
+    const items = response.items || [];
+    const tabCount = $('#tabAssetCount');
+    if (tabCount) {
+      tabCount.textContent = fmt(response.total);
+    }
+
+    const count = $('#assetCount');
+    if (count) {
+      const truncated = response.truncated ? `（仅显示前 ${fmt(items.length)} 条）` : '';
+      count.textContent = `匹配 ${fmt(response.total)} / 共 ${fmt(response.available)}${truncated} · ${fmt(response.sources)} 个来源 · ${response.elapsedMs} ms`;
+    }
+
+    const list = $('#assetList');
+    if (!list) {
+      return;
+    }
+
+    if (items.length === 0) {
+      list.innerHTML = '<div class="asset-table__empty">没有匹配的条目。容器支持子串，例如 <code>spriteoutput/ui/fonts</code>。</div>';
+      return;
+    }
+
+    const head = '<div class="asset-row asset-row--head"><span>名称</span><span>容器</span><span>类型</span><span>来源</span><span>PathID</span></div>';
+    const rows = items
+      .map((item) => {
+        const pathId = String(item.pathId);
+        return `<div class="asset-row" title="${escapeHtml(item.sourcePath || '')}">
+          <span class="asset-row__name">${escapeHtml(item.name || '—')}</span>
+          <span class="asset-row__container">${escapeHtml(item.container || '—')}</span>
+          <span class="asset-row__type">${escapeHtml(item.type || '')}</span>
+          <span class="asset-row__source">${escapeHtml(item.source || '')}</span>
+          <span class="asset-row__pathid">${escapeHtml(pathId)}</span>
+        </div>`;
+      })
+      .join('');
+
+    list.innerHTML = head + rows;
+    APP.pushLog(`资源查询：匹配 ${fmt(response.total)} 条，显示 ${fmt(items.length)} 条（${response.elapsedMs} ms）`);
+  }
+
+  function exportAssetFilter() {
+    const name = ($('#assetName')?.value || '').trim();
+    const container = ($('#assetContainer')?.value || '').trim();
+    const source = ($('#assetSource')?.value || '').trim();
+    const type = $('#assetType')?.value || 'all';
+
+    if (source) {
+      APP.toast('来源过滤暂不支持导出，请用「名称」或「容器」');
+      return;
+    }
+
+    if (!name && !container) {
+      APP.toast('先输入名称或容器，再导出过滤结果');
+      return;
+    }
+
+    const payload = { types: type === 'all' ? ['Sprite', 'Texture2D'] : [type] };
+
+    if (name) {
+      payload.names = [escapeRegex(name)];
+    }
+
+    if (container) {
+      payload.containers = [escapeRegex(container)];
+    }
+
+    runTask('images', payload);
+    APP.pushLog(`按过滤条件导出：${[name && `名称=${name}`, container && `容器=${container}`, type !== 'all' && `类型=${type}`].filter(Boolean).join('，')}`);
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
   function onGamesDetected(message) {
     applySettings(message.settings, message.state);
     APP.setStatus('就绪');
@@ -736,8 +845,19 @@
       return;
     }
 
-    if (hit('#settingsDiff')) {
+    if (hit('#assetSearch')) {
       stop(event);
+      searchAssets();
+      return;
+    }
+
+    if (hit('#assetExport')) {
+      stop(event);
+      exportAssetFilter();
+      return;
+    }
+
+    if (hit('#settingsDiff')) {      stop(event);
       closeSettings();
       call('diff.run');
       APP.toast('正在对比上次快照…');
@@ -940,7 +1060,15 @@
   }
 
   // 调试/自动化入口：CDP 探针可以用它触发真实任务与查询。
-  window.HOST = { runTask, loadText, loadImages, call, state, diff: () => call('diff.run') };
+  window.HOST = {
+    runTask,
+    loadText,
+    loadImages,
+    call,
+    state,
+    diff: () => call('diff.run'),
+    searchAssets,
+  };
 
   webview.postMessage({ type: 'hello' });
 })();

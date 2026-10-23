@@ -40,23 +40,41 @@ internal static class ImageIndex
 
         foreach (string path in Directory.EnumerateFiles(scanRoot, "*.png", SearchOption.AllDirectories))
         {
-            string relativeToUrlRoot = Path.GetRelativePath(urlRoot, path).Replace('\\', '/');
-            string relativeToScanRoot = Path.GetRelativePath(scanRoot, path).Replace('\\', '/');
-            string thumbRelative = $".cache/thumbs/{relativeToUrlRoot}";
+            try
+            {
+                string relativeToUrlRoot = Path.GetRelativePath(urlRoot, path).Replace('\\', '/');
+                string relativeToScanRoot = Path.GetRelativePath(scanRoot, path).Replace('\\', '/');
+                string thumbRelative = $".cache/thumbs/{relativeToUrlRoot}";
 
-            (int width, int height) = ReadPngSize(path);
-            string name = Path.GetFileNameWithoutExtension(path);
+                (int width, int height) = ReadPngSize(path);
+                string name = Path.GetFileNameWithoutExtension(path);
+                long bytes;
 
-            items.Add(new ImageItem(
-                name,
-                relativeToScanRoot,
-                CategoryOf(relativeToUrlRoot, name),
-                UrlPrefix + Escape(relativeToUrlRoot),
-                UrlPrefix + Escape(thumbRelative),
-                thumbRelative,
-                width,
-                height,
-                new FileInfo(path).Length));
+                try
+                {
+                    bytes = new FileInfo(path).Length;
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // The CLI may still be deleting a partial export while we scan.
+                    continue;
+                }
+
+                items.Add(new ImageItem(
+                    name,
+                    relativeToScanRoot,
+                    CategoryOf(relativeToUrlRoot, name),
+                    UrlPrefix + Escape(relativeToUrlRoot),
+                    UrlPrefix + Escape(thumbRelative),
+                    thumbRelative,
+                    width,
+                    height,
+                    bytes));
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                // Skip unreadable files instead of failing the whole gallery.
+            }
         }
 
         items.Sort(static (left, right) => string.Compare(left.RelativePath, right.RelativePath, StringComparison.OrdinalIgnoreCase));

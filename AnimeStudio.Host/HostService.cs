@@ -32,6 +32,7 @@ internal sealed class HostService
     private string? _mapStatsPath;
     private bool _mapStatsRunning;
     private bool _installScanRunning;
+    private int _diffRunning;
 
     public HostService(Action<string> post, Func<string, string?> pickFolder, Action<string?> mapOutputFolder)
     {
@@ -111,6 +112,9 @@ internal sealed class HostService
                 break;
             case "images.query":
                 HandleImagesQuery(root, requestId);
+                break;
+            case "assets.query":
+                _ = QueryAssetsAsync(root, requestId);
                 break;
             case "open.folder":
                 OpenOutputFolder();
@@ -821,9 +825,93 @@ internal sealed class HostService
         });
     }
 
-    private void EnsureImageIndex()
+    /* ---------- asset browser (AssetMap filters) ---------- */
+
+    /// <summary>Asset Browser query, mirroring the original GUI: filter by name/container/source/type.</summary>
+    private Task QueryAssetsAsync(JsonElement root, int requestId) => Task.Run(() =>
     {
-        if (_images.Count > 0 || GameRoot.Length == 0 || string.IsNullOrWhiteSpace(Settings.OutputDirectory))
+        string mapPath = MapPath();
+        if (!File.Exists(mapPath))
+        {
+            Send(new { type = "assets.failed", requestId, message = "找不到 AssetMap，请先建索引。" });
+            return;
+        }
+
+        try
+        {
+            bool rawRegex = root.ValueKind == JsonValueKind.Object &&
+                            root.TryGetProperty("regex", out JsonElement regexElement) &&
+                            regexElement.ValueKind == JsonValueKind.True;
+
+            Regex[] nameFilter = BuildRegexFilters(GetString(root, "name") ?? string.Empty, rawRegex);
+            Regex[] containerFilter = BuildRegexFilters(GetString(root, "container") ?? string.Empty, rawRegex);
+            Regex[] sourceFilter = BuildRegexFilters(GetString(root, "source") ?? string.Empty, rawRegex);
+            ClassIDType[] typeFilter = ParseTypes(GetStringArray(root, "types"));
+            int limit = Math.Clamp(GetInt(root, "limit") ?? 300, 1, 1000);
+
+            AssetMapScanner.QueryResult result = AssetMapScanner.Query(
+                mapPath, typeFilter, nameFilter, containerFilter, sourceFilter, limit);
+
+            Send(new
+            {
+                type = "assets.page",
+                requestId,
+                total = result.MatchedEntries,
+                available = result.TotalEntries,
+                sources = result.Sources.Count,
+                truncated = result.Truncated,
+                elapsedMs = (long)result.Elapsed.TotalMilliseconds,
+                items = result.Items.Select(static item => new
+                {
+                    name = item.Name,
+                    container = item.Container,
+                    source = Path.GetFileName(item.Source),
+                    sourcePath = item.Source,
+                    type = item.Type.ToString(),
+                    pathId = item.PathId,
+                    hash = item.Hash,
+                }),
+            });
+        }
+        catch (Exception exception)
+        {
+            Send(new { type = "assets.failed", requestId, message = Humanize(exception.Message) ?? exception.Message });
+        }
+    });
+
+    private static Regex[] BuildRegexFilters(string text, bool rawRegex)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return [];
+        }
+
+        string pattern = rawRegex ? text : Regex.Escape(text.Trim());
+        return [new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)];
+    }
+
+    private static ClassIDType[] ParseTypes(IEnumerable<string> names)
+    {
+        var types = new List<ClassIDType>();
+
+        foreach (string name in names)
+        {
+            if (string.IsNullOrWhiteSpace(name) || name.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (Enum.TryParse(name, ignoreCase: true, out ClassIDType type))
+            {
+                types.Add(type);
+            }
+        }
+
+        return types.ToArray();
+    }
+
+    private void EnsureImageIndex()
+    {        if (_images.Count > 0 || GameRoot.Length == 0 || string.IsNullOrWhiteSpace(Settings.OutputDirectory))
         {
             return;
         }
@@ -846,6 +934,11 @@ internal sealed class HostService
     {
         string path = SnapshotPath();
         if (path.Length == 0)
+        {
+            return;
+        }
+
+        if (Interlocked.Exchange(ref _diffRunning, 1) == 1)
         {
             return;
         }
@@ -887,9 +980,13 @@ internal sealed class HostService
                 },
             });
         }
-        catch (Exception exception) when (exception is IOException or JsonException or InvalidDataException)
+        catch (Exception exception)
         {
             Send(new { type = "log", level = "warn", message = $"[host] 版本对比失败：{exception.Message}" });
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _diffRunning, 0);
         }
     }
 
