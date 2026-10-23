@@ -10,15 +10,15 @@ namespace AnimeStudio
     /// <summary>
     /// Streaming matcher for AssetMap files.
     ///
-    /// The CLI writes an uncompressed MessagePack <c>AssetMap</c>:
-    /// <code>
-    /// [ GameType, [ AssetEntry x N ] ]
-    /// AssetEntry = [ Name, Container, Source, PathID, Type, Hash, Offset ]
-    /// </code>
-    /// A full Honkai: Star Rail map has ~7.3M entries / ~2GB, and deserializing it into
-    /// <see cref="AssetEntry"/> objects costs roughly 4GB of RAM. This scanner never
-    /// materialises the entries: it walks the MessagePack headers, skips string payloads
-    /// and only converts the few fields that actually match, so peak memory stays flat.
+    /// Two layouts are supported:
+    /// <list type="bullet">
+    /// <item>the original uncompressed MessagePack map (<c>[GameType, AssetEntry[]]</c>)</item>
+    /// <item>the compact v2 map written by the CLI/Host (<see cref="AssetMapV2"/>)</item>
+    /// </list>
+    /// A full Honkai: Star Rail map has ~7.3M entries and used to be ~2GB, and deserializing it
+    /// into <see cref="AssetEntry"/> objects costs roughly 4GB of RAM. This scanner never
+    /// materialises the entries: it walks the format, skips string payloads and only converts
+    /// the few fields that actually match, so peak memory stays flat.
     /// </summary>
     public static class AssetMapScanner
     {
@@ -140,6 +140,7 @@ namespace AnimeStudio
             return result;
         }
 
+        /// <summary>True when the file is a raw (v1 MessagePack) or compact (v2) map the streaming scanner can read.</summary>
         public static bool IsRawAssetMap(string path)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
@@ -149,13 +150,19 @@ namespace AnimeStudio
         public static bool IsRawAssetMap(Stream stream)
         {
             long originalPosition = stream.CanSeek ? stream.Position : -1;
-            int first = stream.ReadByte();
+            Span<byte> magic = stackalloc byte[4];
+            int read = stream.Read(magic);
             if (originalPosition >= 0)
             {
                 stream.Position = originalPosition;
             }
 
-            return first == FixArray2;
+            if (read >= 1 && magic[0] == FixArray2)
+            {
+                return true;
+            }
+
+            return read == 4 && magic.SequenceEqual(AssetMapV2.MagicBytes);
         }
 
         public static ScanResult SelectSources(string path, ClassIDType[] typeFilter, Regex[] nameFilter, Regex[] containerFilter, bool dedupeNames = false)
@@ -246,6 +253,27 @@ namespace AnimeStudio
 
         private static void ForEachEntry(Stream stream, out long consumedBytes, out long totalEntries, EntryVisitor visitor)
         {
+            if (!stream.CanSeek)
+            {
+                throw new InvalidOperationException("AssetMap streams must be seekable.");
+            }
+
+            stream.Position = 0;
+            Span<byte> magic = stackalloc byte[4];
+            int read = stream.Read(magic);
+            stream.Position = 0;
+
+            if (read == 4 && magic.SequenceEqual(AssetMapV2.MagicBytes))
+            {
+                ForEachEntryCompact(stream, out consumedBytes, out totalEntries, visitor);
+                return;
+            }
+
+            ForEachEntryMessagePack(stream, out consumedBytes, out totalEntries, visitor);
+        }
+
+        private static void ForEachEntryMessagePack(Stream stream, out long consumedBytes, out long totalEntries, EntryVisitor visitor)
+        {
             var reader = new BufferedStreamReader(stream);
 
             byte rootTag = reader.ReadByte();
@@ -285,6 +313,90 @@ namespace AnimeStudio
 
             consumedBytes = reader.ConsumedBytes;
             totalEntries = entryCount;
+        }
+
+        /// <summary>Reads the compact v2 map (<see cref="AssetMapV2"/>), grouped by source file.</summary>
+        private static void ForEachEntryCompact(Stream stream, out long consumedBytes, out long totalEntries, EntryVisitor visitor)
+        {
+            var reader = new BufferedStreamReader(stream);
+
+            Span<byte> magic = stackalloc byte[4];
+            reader.ReadBytes(magic);
+            if (!magic.SequenceEqual(AssetMapV2.MagicBytes))
+            {
+                throw new InvalidDataException("Not a compact AssetMap.");
+            }
+
+            byte version = reader.ReadByte();
+            if (version != AssetMapV2.Version)
+            {
+                throw new InvalidDataException($"Unsupported compact AssetMap version {version}.");
+            }
+
+            byte flags = reader.ReadByte();
+            bool hasHash = (flags & AssetMapV2.FlagHasHash) != 0;
+            _ = reader.ReadInt32();                  // gameType
+            long entryCount = reader.ReadInt64();
+            int fileCount = reader.ReadInt32();
+            int containerCount = reader.ReadInt32();
+            if (fileCount < 0 || containerCount < 0 || entryCount < 0)
+            {
+                throw new InvalidDataException("Corrupt compact AssetMap header.");
+            }
+
+            byte[][] sources = new byte[fileCount][];
+            for (int i = 0; i < fileCount; i++)
+            {
+                sources[i] = reader.ReadStringBlock();
+            }
+
+            byte[][] containers = new byte[containerCount][];
+            for (int i = 0; i < containerCount; i++)
+            {
+                containers[i] = reader.ReadStringBlock();
+            }
+
+            byte[] nameBuffer = new byte[256];
+            byte[] hashBuffer = new byte[16];
+
+            for (int fileIndex = 0; fileIndex < fileCount; fileIndex++)
+            {
+                long fileEntries = (long)reader.ReadVarUInt();
+                byte[] source = sources[fileIndex];
+                for (long i = 0; i < fileEntries; i++)
+                {
+                    int nameLength = reader.ReadStringInto(ref nameBuffer);
+                    int containerId = (int)reader.ReadVarUInt();
+                    int type = (int)reader.ReadVarUInt();
+                    long pathId = (long)reader.ReadVarUInt();
+                    _ = reader.ReadZigZag();                 // offset
+                    int hashLength = -1;
+                    if (hasHash)
+                    {
+                        FormatHash(reader.ReadUInt64(), hashBuffer);
+                        hashLength = 16;
+                    }
+
+                    byte[] container = containerId > 0 && containerId <= containers.Length
+                        ? containers[containerId - 1]
+                        : Array.Empty<byte>();
+
+                    visitor((ClassIDType)type, pathId, nameBuffer, nameLength, container, container.Length, source, source.Length, hashBuffer, hashLength);
+                }
+            }
+
+            consumedBytes = reader.ConsumedBytes;
+            totalEntries = entryCount;
+        }
+
+        private static void FormatHash(ulong value, byte[] destination)
+        {
+            const string digits = "0123456789abcdef";
+            for (int i = 15; i >= 0; i--)
+            {
+                destination[i] = (byte)digits[(int)(value & 0xF)];
+                value >>= 4;
+            }
         }
 
         private delegate void EntryVisitor(
@@ -510,6 +622,96 @@ namespace AnimeStudio
                     written += take;
                     ConsumedBytes += take;
                 }
+            }
+
+            public int ReadInt32()
+            {
+                Span<byte> buffer = stackalloc byte[4];
+                ReadBytes(buffer);
+                return BitConverter.ToInt32(buffer);
+            }
+
+            public long ReadInt64()
+            {
+                Span<byte> buffer = stackalloc byte[8];
+                ReadBytes(buffer);
+                return BitConverter.ToInt64(buffer);
+            }
+
+            public ulong ReadUInt64()
+            {
+                Span<byte> buffer = stackalloc byte[8];
+                ReadBytes(buffer);
+                return BitConverter.ToUInt64(buffer);
+            }
+
+            public ulong ReadVarUInt()
+            {
+                ulong value = 0;
+                int shift = 0;
+                while (true)
+                {
+                    byte current = ReadByte();
+                    value |= (ulong)(current & 0x7F) << shift;
+                    if ((current & 0x80) == 0)
+                    {
+                        return value;
+                    }
+
+                    shift += 7;
+                    if (shift > 63)
+                    {
+                        throw new InvalidDataException("Corrupt compact AssetMap varint.");
+                    }
+                }
+            }
+
+            public long ReadZigZag()
+            {
+                ulong value = ReadVarUInt();
+                return (long)(value >> 1) ^ -(long)(value & 1);
+            }
+
+            /// <summary>Reads a varint-length-prefixed UTF-8 block into a freshly allocated array.</summary>
+            public byte[] ReadStringBlock()
+            {
+                int length = (int)ReadVarUInt();
+                if (length <= 0)
+                {
+                    return Array.Empty<byte>();
+                }
+
+                if (length > MaxStringLength)
+                {
+                    throw new InvalidDataException($"Compact AssetMap string is too long ({length} bytes).");
+                }
+
+                byte[] buffer = new byte[length];
+                ReadBytes(buffer);
+                return buffer;
+            }
+
+            /// <summary>Reads a varint-length-prefixed UTF-8 block into a reusable buffer.</summary>
+            public int ReadStringInto(ref byte[] buffer)
+            {
+                int length = (int)ReadVarUInt();
+                if (length <= 0)
+                {
+                    return -1;
+                }
+
+                if (length > MaxStringLength)
+                {
+                    throw new InvalidDataException($"Compact AssetMap string is too long ({length} bytes).");
+                }
+
+                if (buffer.Length < length)
+                {
+                    buffer = new byte[Math.Max(length, buffer.Length * 2)];
+                }
+
+                ReadBytes(buffer.AsSpan(0, length));
+                return length;
             }
 
             private void Refill()

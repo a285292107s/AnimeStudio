@@ -17,7 +17,7 @@ using System.Threading.Tasks;
 
 namespace AnimeStudio
 {
-    public static class AssetsHelper
+    public static partial class AssetsHelper
     {
         public const string MapName = "Maps";
 
@@ -28,6 +28,15 @@ namespace AnimeStudio
         /// Host never reads; skipping it removes one full read of every asset's bytes.
         /// </summary>
         public static bool SkipHash;
+
+        /// <summary>MessagePack writes the legacy format; Compact writes <see cref="AssetMapV2"/>.</summary>
+        public static MapFormat MapFormat = MapFormat.MessagePack;
+
+        /// <summary>Worker count for the compact map builder (1 = sequential).</summary>
+        public static int ThreadCount = 1;
+
+        /// <summary>Ignore the incremental map cache and reparse every input file.</summary>
+        public static bool ForceMapRebuild;
 
         private const int MessagePackMapHeaderSize = 11; // fixarray(2) + int32 game + array32 count
         private const long GcAllocationThreshold = 512L * 1024 * 1024;
@@ -73,12 +82,18 @@ namespace AnimeStudio
         private static void MaybeCollectGarbage()
         {
             long allocated = GC.GetTotalAllocatedBytes(precise: false);
-            if (allocated - lastGcAllocatedBytes < GcAllocationThreshold)
+            long last = Volatile.Read(ref lastGcAllocatedBytes);
+            if (allocated - last < GcAllocationThreshold)
             {
                 return;
             }
 
-            lastGcAllocatedBytes = allocated;
+            // Several worker threads may reach the budget together; only one of them collects.
+            if (Interlocked.CompareExchange(ref lastGcAllocatedBytes, allocated, last) != last)
+            {
+                return;
+            }
+
             GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
         }
 
@@ -237,6 +252,15 @@ namespace AnimeStudio
             }
         }
 
+        /// <summary>Merge split files and expand the input list once per build.</summary>
+        private static List<string> PrepareInputFiles(string[] files)
+        {
+            var path = Path.GetDirectoryName(Path.GetFullPath(files[0]));
+            // Merge splits once for the whole batch — not once per file inside AssetsManager.LoadFiles.
+            ImportHelper.MergeSplitAssets(path);
+            return new List<string>(ImportHelper.ProcessingSplitFiles(files.ToList()));
+        }
+
         /// <summary>
         /// Walk input files and invoke <paramref name="process"/> each time a bundle has been
         /// loaded. For multi-bundle blocks (HSR ENCR .block) this fires once per inner bundle
@@ -244,94 +268,16 @@ namespace AnimeStudio
         /// </summary>
         private static void ForEachLoadedBundle(string[] files, Action<string> process)
         {
-            var path = Path.GetDirectoryName(Path.GetFullPath(files[0]));
-            // Merge splits once for the whole batch — not once per file inside AssetsManager.LoadFiles.
-            ImportHelper.MergeSplitAssets(path);
-            var toReadFile = ImportHelper.ProcessingSplitFiles(files.ToList());
-
-            var filesList = new List<string>(toReadFile);
-
-            void InvokeProcess(string currentFile)
-            {
-                long start = Profile ? Stopwatch.GetTimestamp() : 0;
-                process(currentFile);
-                if (Profile)
-                {
-                    profileProcessTicks += Stopwatch.GetTimestamp() - start;
-                }
-            }
-
+            var filesList = PrepareInputFiles(files);
             for (int i = 0; i < filesList.Count; i++)
             {
-                var file = filesList[i];
-                var processedViaCallback = false;
+                bool processed = ProcessFile(assetsManager, filesList[i], process);
 
-                assetsManager.AfterBundleLoaded = () =>
-                {
-                    // Always run for any loaded content. Resource-only bundles previously
-                    // skipped this path, so their streams (and the shared decompressed
-                    // block buffer they pin via zero-copy views) accumulated across every
-                    // ENCR in a multi-bundle HSR .block — the OOM after ~file 3580.
-                    if (assetsManager.assetsFileList.Count == 0
-                        && assetsManager.ResourceFileCount == 0)
-                    {
-                        return;
-                    }
-                    processedViaCallback = true;
-                    if (assetsManager.assetsFileList.Count > 0)
-                    {
-                        if (Profile)
-                        {
-                            profileBundleCallbacks++;
-                        }
-
-                        InvokeProcess(file);
-                    }
-                    // Free CAB/resource streams before the next bundle in this block loads.
-                    // Keep assetsFileListHash so duplicate CAB names in later bundles are skipped.
-                    assetsManager.ClearLoadedAssets();
-                    // Drop interned Container/Source strings from the bundle we just flushed.
-                    // A single HSR .block can contain 100+ ENCRs; without this the cache grows
-                    // for the entire outer file and pins multi-GB of unique path strings.
-                    StringCache.Clear();
-                    // Multi-bundle HSR blocks decompress LOH buffers per ENCR. Without an explicit
-                    // collection those buffers stay alive until a later GC, and private bytes climb
-                    // by tens of MB × hundreds of ENCRs (OOM). Collect on an allocation budget
-                    // rather than after every bundle: same safety margin, far fewer forced GCs.
-                    MaybeCollectGarbage();
-                };
-
-                long loadStart = Profile ? Stopwatch.GetTimestamp() : 0;
-                try
-                {
-                    assetsManager.LoadFiles(new[] { file }, mergeSplitAssets: false);
-                }
-                finally
-                {
-                    assetsManager.AfterBundleLoaded = null;
-                    if (Profile)
-                    {
-                        profileLoadTicks += Stopwatch.GetTimestamp() - loadStart;
-                    }
-                }
-
-                // Non-bundle assets files never trip AfterBundleLoaded — process once here.
-                if (!processedViaCallback && assetsManager.assetsFileList.Count > 0)
-                {
-                    InvokeProcess(file);
-                    processedViaCallback = true;
-                }
-
-                var msg = processedViaCallback
-                    ? $"Processed {Path.GetFileName(file)}"
-                    : $"Removed {Path.GetFileName(file)}, no assets found";
+                var msg = processed
+                    ? $"Processed {Path.GetFileName(filesList[i])}"
+                    : $"Removed {Path.GetFileName(filesList[i])}, no assets found";
                 Logger.Info($"[{i + 1}/{filesList.Count}] {msg}");
                 Progress.Report(i + 1, filesList.Count);
-                assetsManager.Clear();
-
-                // Drop interned Source/Container strings from already-flushed entries so the
-                // cache cannot grow without bound across multi-thousand-file HSR dumps.
-                StringCache.Clear();
 
                 // Large multi-bundle blocks (HSR .block) allocate many LOH streams per file.
                 // A periodic gen-2 collection keeps the working set from ratcheting up across
@@ -341,6 +287,88 @@ namespace AnimeStudio
                     MaybeCollectGarbage();
                 }
             }
+        }
+
+        /// <summary>
+        /// Loads one already-prepared input file with the given manager and runs the map callback
+        /// once per inner bundle. Safe to call from several worker threads with separate managers.
+        /// </summary>
+        private static bool ProcessFile(AssetsManager manager, string file, Action<string> process)
+        {
+            var processedViaCallback = false;
+
+            void InvokeProcess(string currentFile)
+            {
+                long start = Profile ? Stopwatch.GetTimestamp() : 0;
+                process(currentFile);
+                if (Profile)
+                {
+                    Interlocked.Add(ref profileProcessTicks, Stopwatch.GetTimestamp() - start);
+                }
+            }
+
+            manager.AfterBundleLoaded = () =>
+            {
+                // Always run for any loaded content. Resource-only bundles previously
+                // skipped this path, so their streams (and the shared decompressed
+                // block buffer they pin via zero-copy views) accumulated across every
+                // ENCR in a multi-bundle HSR .block — the OOM after ~file 3580.
+                if (manager.assetsFileList.Count == 0
+                    && manager.ResourceFileCount == 0)
+                {
+                    return;
+                }
+                processedViaCallback = true;
+                if (manager.assetsFileList.Count > 0)
+                {
+                    if (Profile)
+                    {
+                        Interlocked.Increment(ref profileBundleCallbacks);
+                    }
+
+                    InvokeProcess(file);
+                }
+                // Free CAB/resource streams before the next bundle in this block loads.
+                // Keep assetsFileListHash so duplicate CAB names in later bundles are skipped.
+                manager.ClearLoadedAssets();
+                // Drop interned Container/Source strings from the bundle we just flushed.
+                // A single HSR .block can contain 100+ ENCRs; without this the cache grows
+                // for the entire outer file and pins multi-GB of unique path strings.
+                StringCache.Clear();
+                // Multi-bundle HSR blocks decompress LOH buffers per ENCR. Without an explicit
+                // collection those buffers stay alive until a later GC, and private bytes climb
+                // by tens of MB × hundreds of ENCRs (OOM). Collect on an allocation budget
+                // rather than after every bundle: same safety margin, far fewer forced GCs.
+                MaybeCollectGarbage();
+            };
+
+            long loadStart = Profile ? Stopwatch.GetTimestamp() : 0;
+            try
+            {
+                manager.LoadFiles(new[] { file }, mergeSplitAssets: false);
+            }
+            finally
+            {
+                manager.AfterBundleLoaded = null;
+                if (Profile)
+                {
+                    Interlocked.Add(ref profileLoadTicks, Stopwatch.GetTimestamp() - loadStart);
+                }
+            }
+
+            // Non-bundle assets files never trip AfterBundleLoaded — process once here.
+            if (!processedViaCallback && manager.assetsFileList.Count > 0)
+            {
+                InvokeProcess(file);
+                processedViaCallback = true;
+            }
+
+            manager.Clear();
+
+            // Drop interned Source/Container strings from already-flushed entries so the
+            // cache cannot grow without bound across multi-thousand-file HSR dumps.
+            StringCache.Clear();
+            return processedViaCallback;
         }
 
         private static void BuildCABMap(string file, ref int collision)
@@ -480,6 +508,11 @@ namespace AnimeStudio
                     ForEachLoadedBundle(files, file => BuildAssetMap(file, assets, typeFilters, nameFilters, containerFilters));
                     UpdateContainers(assets, game);
                     await ExportAssetsMap(assets, game, mapName, savePath, exportListType);
+                }
+                else if (exportListType == ExportListType.MessagePack && MapFormat == MapFormat.Compact)
+                {
+                    // Compact v2: file-grouped varint entries + incremental cache + parallel workers.
+                    await Task.Run(() => BuildAssetMapCompact(files, mapName, game, savePath, typeFilters, nameFilters, containerFilters));
                 }
                 else
                 {
@@ -644,14 +677,39 @@ namespace AnimeStudio
             }
         }
 
+        /// <summary>
+        /// Objects outside the requested type filter that still have to be parsed to build a
+        /// filtered map: bundle manifests carry the container paths, and animator/bin-data
+        /// names live on GameObject/IndexObject references.
+        /// </summary>
+        private static bool MustParseForFilteredMap(ClassIDType type, ClassIDType[] typeFilters)
+        {
+            switch (type)
+            {
+                case ClassIDType.AssetBundle:
+                    return true;
+                case ClassIDType.GameObject:
+                    return typeFilters.Contains(ClassIDType.Animator);
+                case ClassIDType.IndexObject:
+                case ClassIDType.MiHoYoBinData:
+                    return typeFilters.Contains(ClassIDType.MiHoYoBinData);
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Sequential build helper used by the legacy paths (shared static manager).</summary>
         private static void BuildAssetMap(string file, List<AssetEntry> assets, ClassIDType[] typeFilters = null, Regex[] nameFilters = null, Regex[] containerFilters = null)
+            => BuildAssetMap(assetsManager, file, assets, typeFilters, nameFilters, containerFilters);
+
+        private static void BuildAssetMap(AssetsManager manager, string file, List<AssetEntry> assets, ClassIDType[] typeFilters = null, Regex[] nameFilters = null, Regex[] containerFilters = null)
         {
             var matches = new List<AssetEntry>();
             var containers = new List<(PPtr<Object>, string)>();
             var mihoyoBinDataNames = new List<(PPtr<Object>, string)>();
             var objectAssetItemDic = new Dictionary<Object, AssetEntry>();
             var animators = new List<(PPtr<Object>, AssetEntry)>();
-            foreach (var assetsFile in assetsManager.assetsFileList)
+            foreach (var assetsFile in manager.assetsFileList)
             {
                 foreach (var objInfo in assetsFile.m_Objects)
                 {
@@ -660,7 +718,23 @@ namespace AnimeStudio
                         Logger.Info("Building AssetMap has been cancelled !!");
                         return;
                     }
-                    var objectReader = new ObjectReader(assetsFile.reader, assetsFile, objInfo, assetsManager.Game);
+
+                    // With a type filter, skip objects that can neither be exported nor help
+                    // resolve names/containers. HSR maps are >90% MonoBehaviour, so filtering
+                    // to Sprite/Texture2D avoids parsing them at all instead of hashing them
+                    // and throwing the entry away afterwards.
+                    if (!typeFilters.IsNullOrEmpty())
+                    {
+                        ClassIDType objectType = Enum.IsDefined(typeof(ClassIDType), objInfo.classID)
+                            ? (ClassIDType)objInfo.classID
+                            : ClassIDType.UnknownType;
+                        if (!typeFilters.Contains(objectType) && !MustParseForFilteredMap(objectType, typeFilters))
+                        {
+                            continue;
+                        }
+                    }
+
+                    var objectReader = new ObjectReader(assetsFile.reader, assetsFile, objInfo, manager.Game);
                     var obj = new Object(objectReader);
                     // Keep a stable reference for hashing — some branches below set obj = null
                     // (AssetBundle / IndexObject) while the entry may still be exportable.
@@ -792,22 +866,38 @@ namespace AnimeStudio
                     }
                     if (exportable)
                     {
-                        // Hash only exportable entries. Skip multi-dozen-MB blobs (large HSR
-                        // shaders/meshes): streaming hash is correct but pointless for map
-                        // identity when the raw payload dwarfs the rest of the entry.
-                        const uint largeHashSkip = 16u * 1024 * 1024;
-                        long hashStart = Profile ? Stopwatch.GetTimestamp() : 0;
-                        asset.Hash = SkipHash
-                            ? string.Empty
-                            : hashSource.byteSize >= largeHashSkip
-                                ? $"size:{hashSource.byteSize:x}"
-                                : hashSource.GetHash();
-                        if (Profile)
+                        // Skip the hash when the caller filtered this type out anyway: with
+                        // --types Sprite/Texture2D that removes millions of pointless hashes.
+                        bool wanted = typeFilters.IsNullOrEmpty() || typeFilters.Contains(objectReader.type);
+                        if (wanted)
                         {
-                            profileHashTicks += Stopwatch.GetTimestamp() - hashStart;
-                        }
+                            // Hash only exportable entries. Skip multi-dozen-MB blobs (large HSR
+                            // shaders/meshes): streaming hash is correct but pointless for map
+                            // identity when the raw payload dwarfs the rest of the entry.
+                            const uint largeHashSkip = 16u * 1024 * 1024;
+                            long hashStart = Profile ? Stopwatch.GetTimestamp() : 0;
+                            if (MapFormat == MapFormat.Compact)
+                            {
+                                asset.Hash64 = SkipHash || hashSource.byteSize >= largeHashSkip
+                                    ? 0
+                                    : hashSource.GetRawHash();
+                            }
+                            else
+                            {
+                                asset.Hash = SkipHash
+                                    ? string.Empty
+                                    : hashSource.byteSize >= largeHashSkip
+                                        ? $"size:{hashSource.byteSize:x}"
+                                        : hashSource.GetHash();
+                            }
 
-                        matches.Add(asset);
+                            if (Profile)
+                            {
+                                Interlocked.Add(ref profileHashTicks, Stopwatch.GetTimestamp() - hashStart);
+                            }
+
+                            matches.Add(asset);
+                        }
                     }
                 }
             }
@@ -820,9 +910,9 @@ namespace AnimeStudio
             }
             foreach ((var pptr, var name) in mihoyoBinDataNames)
             {
-                if (pptr.TryGet<MiHoYoBinData>(out var miHoYoBinData))
+                if (pptr.TryGet<MiHoYoBinData>(out var miHoYoBinData)
+                    && objectAssetItemDic.TryGetValue(miHoYoBinData, out var asset))
                 {
-                    var asset = objectAssetItemDic[miHoYoBinData];
                     if (int.TryParse(name, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var hash))
                     {
                         asset.Name = name;
@@ -833,9 +923,10 @@ namespace AnimeStudio
             }
             foreach ((var pptr, var container) in containers)
             {
-                if (pptr.TryGet(out var obj))
+                if (pptr.TryGet(out var obj)
+                    && objectAssetItemDic.TryGetValue(obj, out var asset))
                 {
-                    objectAssetItemDic[obj].Container = container;
+                    asset.Container = container;
                 }
             }
 

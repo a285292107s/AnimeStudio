@@ -93,13 +93,13 @@
       <p>输入可以是文件或目录，给目录会连子目录一起扫；输出目录自动创建。<code>--game SR</code> 必填，决定用哪套解密规则。<code>--types Texture2D Sprite</code> 只要贴图和精灵。另外两个默认值刚好合用：<code>--export_type Convert</code> 转成 PNG 这类可读格式，<code>--group_assets ByType</code> 按类型分目录。</p>
 
       <pre><code>AnimeStudio.CLI.exe "D:\Games\ZZZ" "D:\Maps\zzz" --game ZZZ --map_op AssetMap --map_type MessagePack --map_name zzz-assets</code></pre>
-      <p>这条不导资产，只建索引：扫完目录，在 <code>D:\Maps\zzz\zzz-assets.map</code> 里写下每个资产的名字、容器、来源包、PathID、类型、Hash 和偏移。慢，但只需要扫这一次。建图现在先写 <code>.partial</code> 再原子改名，中途失败不会破坏上一次的地图；想再快一点可以加 <code>--no_hash</code> 跳过 Hash 计算（地图约小 5%，Hash 列留空）。想知道时间花在哪，设 <code>ANIMESTUDIO_MAP_PROFILE=1</code> 再跑，结束日志会多一行 load / parse / hash / serialize 的分段耗时。</p>
+      <p>这条不导资产，只建索引：扫完目录，在 <code>D:\Maps\zzz\zzz-assets.map</code> 里写下每个资产的名字、容器、来源包、PathID、类型、Hash 和偏移。默认写紧凑 v2 格式（同样的内容约小 5 倍），4 线程并行，并且把每个包的条目缓存下来——下次游戏更新只重扫变化的包，通常几秒完成。建图先写 <code>.partial</code> 再原子改名，中途失败不会破坏上一次的地图；想再快一点可以加 <code>--no_hash</code> 跳过 Hash 计算。想知道时间花在哪，设 <code>ANIMESTUDIO_MAP_PROFILE=1</code> 再跑，结束日志会多一行 load / parse / hash / serialize 的分段耗时。</p>
 
       <pre><code>AnimeStudio.CLI.exe "D:\Games\ZZZ" "D:\Out\zzz-ui" --game ZZZ --map_op AssetMap,Load --map_type MessagePack --map_name "D:\Maps\zzz\zzz-assets.map" --names "ui_.*" --types Sprite</code></pre>
       <p>这条读上一条的索引，只加载名字匹配 <code>ui_.*</code> 的精灵所在的包，再导出。<code>AssetMap,Load</code> 就是「用现成的 map」，所以 <code>--map_name</code> 要给带 <code>.map</code> 的完整路径。</p>
 
-      <h2 id="flags">18 个参数的默认值</h2>
-      <p>16 个 flag 加两个位置参数，默认值全在 <code>Components/CommandLine.cs</code> 里。</p>
+      <h2 id="flags">21 个参数的默认值</h2>
+      <p>19 个 flag 加两个位置参数，默认值全在 <code>Components/CommandLine.cs</code> 里。</p>
 
       <div class="table-wrap">
         <table>
@@ -144,7 +144,7 @@
 
       <div class="table-wrap">
         <table>
-          <caption>地图相关的四项</caption>
+          <caption>地图相关的七项</caption>
           <thead>
             <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
           </thead>
@@ -152,7 +152,10 @@
             <tr><td><code>--map_op</code></td><td><code>None</code></td><td><code>CABMap</code> / <code>AssetMap</code> / <code>Both</code> / <code>Load</code>，可逗号组合。</td></tr>
             <tr><td><code>--map_type</code></td><td><code>XML</code></td><td><code>MessagePack</code> / <code>XML</code> / <code>JSON</code> / <code>None</code>。</td></tr>
             <tr><td><code>--map_name</code></td><td><code>assets_map</code></td><td>地图文件名。Load 模式要给完整路径。</td></tr>
-            <tr><td><code>--no_hash</code></td><td>关</td><td>建图时不计算每个资产的 Hash：少扫一遍资产字节，地图约小 5%，Hash 列为空；提取不用这一列。</td></tr>
+            <tr><td><code>--map_format</code></td><td><code>Compact</code></td><td><code>Compact</code>（v2，约小 5 倍）或 <code>MessagePack</code>（旧格式）；Load 时自动识别。</td></tr>
+            <tr><td><code>--threads</code></td><td><code>4</code></td><td>建图并行线程数，<code>1</code> = 单线程。</td></tr>
+            <tr><td><code>--map_full</code></td><td>关</td><td>忽略增量缓存，重扫全部文件。</td></tr>
+            <tr><td><code>--no_hash</code></td><td>关</td><td>建图时不计算每个资产的 Hash：少扫一遍资产字节，地图更小，Hash 列为空；提取不用这一列。</td></tr>
           </tbody>
         </table>
       </div>
@@ -218,6 +221,8 @@
 
       <h2 id="asset-browser">Asset Browser 能干什么</h2>
       <p>Asset Browser 是专门读 map 的工具（菜单的 Load AssetMap），只认 <code>.map</code> 和 <code>.json</code>，不认 <code>.xml</code>。</p>
+
+      <p>新版 Host/CLI 默认写<strong>紧凑 v2 地图</strong>（<code>--map_format Compact</code>，同样 733 万条时从 1.93 GB 降到约 386 MB），并按文件做增量缓存：游戏补丁后重建只重扫变化的包，通常几秒。老的 Asset Browser 不认 v2，要给它看就加 <code>--map_format MessagePack</code> 重建成旧格式；网页宿主和 CLI 的 <code>AssetMap,Load</code> 两种格式都能读，<code>--threads</code> 控制建图并行度（默认 4）。</p>
 
       <figure class="plate">
         <div class="ui" data-ui>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using MessagePack;
@@ -9,9 +9,16 @@ namespace AnimeStudio
     {
         private static readonly HashSet<string> _cache = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// Interned strings only reduce RAM while entries live long enough to be reused. Parallel
+        /// map builders keep entries only per bundle and the shared cache would need locking, so
+        /// they turn interning off instead.
+        /// </summary>
+        public static bool Enabled = true;
+
         public static string Get(string value)
         {
-            if (value == null) return null;
+            if (!Enabled || value == null) return value;
 
             if (_cache.TryGetValue(value, out var cached))
                 return cached;
@@ -26,7 +33,10 @@ namespace AnimeStudio
         /// </summary>
         public static void Clear()
         {
-            _cache.Clear();
+            if (Enabled)
+            {
+                _cache.Clear();
+            }
         }
 
         public static int Count => _cache.Count;
@@ -82,6 +92,13 @@ namespace AnimeStudio
             get => _hash;
             set => _hash = value;
         }
+
+        /// <summary>
+        /// Raw 64-bit hash used by the compact map format (v2). The legacy MessagePack map keeps
+        /// writing <see cref="Hash"/> as a hex string, so this member has no MessagePack key.
+        /// </summary>
+        [IgnoreMember]
+        public ulong Hash64 { get; set; }
 
         [Key(6)]
         public long Offset { get; set; } = -1;

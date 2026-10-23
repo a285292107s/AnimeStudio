@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Text;
 using System.Security.Cryptography;
 
@@ -10,6 +10,7 @@ namespace AnimeStudio
         private const string ManjuuSignature = "#$manjuuunity*!@";
 
         private static ICryptoTransform Encryptor;
+        private static readonly object EncryptorLock = new();
 
         public byte[] Index = new byte[0x10];
         public byte[] Sub = new byte[0x10];
@@ -103,9 +104,16 @@ namespace AnimeStudio
         {
             if (Encryptor != null)
             {
-                key = Encryptor.TransformFinalBlock(key, 0, key.Length);
+                // The AES transform is shared by every bundle; serialise the one-shot call so
+                // parallel map workers cannot step on each other's transform state.
+                byte[] encrypted;
+                lock (EncryptorLock)
+                {
+                    encrypted = Encryptor.TransformFinalBlock(key, 0, key.Length);
+                }
+
                 for (int i = 0; i < 0x10; i++)
-                    data[i] ^= key[i];
+                    data[i] ^= encrypted[i];
             }
         }
 

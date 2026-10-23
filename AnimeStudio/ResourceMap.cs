@@ -1,4 +1,4 @@
-﻿using MessagePack;
+using MessagePack;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -36,6 +36,18 @@ namespace AnimeStudio
                     
                     if (extension == ".map")
                     {
+                        // The Host/CLI default writer produces a compact v2 map that this legacy
+                        // Asset Browser cannot materialise; report it instead of a parse error.
+                        Span<byte> magic = stackalloc byte[4];
+                        int read = stream.Read(magic);
+                        stream.Position = 0;
+                        if (read == 4 && magic.SequenceEqual(AssetMapV2.MagicBytes))
+                        {
+                            throw new NotSupportedException(
+                                "这是紧凑 v2 AssetMap（Host/CLI 默认格式），老 Asset Browser 读不了；" +
+                                "要用这里的界面看，请先加 --map_format MessagePack 重新建图。");
+                        }
+
                         // Deserialize map
                         Instance = MessagePackSerializer.Deserialize<AssetMap>(stream, MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray));
                     }

@@ -68,6 +68,12 @@ namespace AnimeStudio
         }
 
         /// <summary>
+        /// Raw xxHash of the object bytes, used by the compact map format (no hex string
+        /// allocation for millions of entries).
+        /// </summary>
+        public ulong GetRawHash() => ComputeRawHash();
+
+        /// <summary>
         /// Stream object bytes through xxHash without allocating a full raw-data buffer.
         /// Avoids multi-GB LOH pressure when building asset maps over large games (e.g. HSR).
         /// </summary>
