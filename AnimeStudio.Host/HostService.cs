@@ -29,6 +29,7 @@ internal sealed class HostService
     private readonly object _imageGate = new();
     private int _imageVersion;
     private readonly List<(string Game, string From, string To)> _outputSyncNotices = [];
+    private int _configTableCount;
     private CancellationTokenSource? _taskCts;
 
     private AssetMapScanner.MapStats? _mapStats;
@@ -165,6 +166,7 @@ internal sealed class HostService
     {
         // Follow output folders renamed in Explorer before reporting paths to the UI.
         SynchronizeOutputPaths(notify: false);
+        RefreshConfigTableCount();
 
         if (_text.Tables.Count == 0 && GameRoot.Length > 0)
         {
@@ -313,6 +315,7 @@ internal sealed class HostService
 
             // out.local serves the active game's own directory, so PNG URLs stay portable.
             _mapOutputFolder(GameRoot);
+            RefreshConfigTableCount();
         }
 
         if (notify)
@@ -347,6 +350,7 @@ internal sealed class HostService
         gameDataPath = Profile.DataPath,
         outputDirectory = GameRoot,
         cliPath = Settings.CliPath,
+        configTableSource = Settings.ConfigTableSource,
         mapPath = MapPath(),
         indexName = Profile.IndexName,
         profiles = Settings.Profiles.Keys,
@@ -384,6 +388,7 @@ internal sealed class HostService
             mapModified = SafeFileModified(MapPath()),
         },
         outputDirectory = GameRoot,
+        configTables = _configTableCount,
     };
 
     private void HandlePick(JsonElement root)
@@ -394,6 +399,7 @@ internal sealed class HostService
         {
             "game" => "选择游戏的 <Game>_Data 目录",
             "output" => $"选择 {GameLabel(game)} 的输出目录",
+            "config" => "选择配置表数据源目录（ExcelOutput 或包含它的仓库根目录）",
             _ => "选择目录",
         });
 
@@ -409,6 +415,9 @@ internal sealed class HostService
                 break;
             case "output":
                 ApplyOutputDirectory(game, picked);
+                break;
+            case "config":
+                Settings.ConfigTableSource = picked;
                 break;
             default:
                 return;
@@ -482,6 +491,40 @@ internal sealed class HostService
         {
             _text.Load(Path.Combine(GameRoot, "text"));
         }
+
+        RefreshConfigTableCount();
+    }
+
+    /// <summary>Counts exported config tables (excluding the manifest) for the UI summary.</summary>
+    private void RefreshConfigTableCount()
+    {
+        _configTableCount = 0;
+        string root = GameRoot;
+        if (root.Length == 0)
+        {
+            return;
+        }
+
+        string directory = Path.Combine(root, "config");
+        if (!Directory.Exists(directory))
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (string file in Directory.EnumerateFiles(directory, "*.json", SearchOption.TopDirectoryOnly))
+            {
+                if (!string.Equals(Path.GetFileName(file), "config.index.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    _configTableCount++;
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A half-deleted folder is not worth failing the UI over.
+        }
     }
 
     private void HandleSave(JsonElement root)
@@ -517,6 +560,11 @@ internal sealed class HostService
             if (TryGetOptionalString(settings, "indexName", out string? indexName) && !string.IsNullOrWhiteSpace(indexName))
             {
                 Profile.IndexName = indexName.Trim();
+            }
+
+            if (TryGetOptionalString(settings, "configTableSource", out string? configSource))
+            {
+                Settings.ConfigTableSource = Blank(configSource);
             }
 
             // New UI sends both games' paths at once; older markup sends a single path that
@@ -1000,6 +1048,37 @@ internal sealed class HostService
                     return arguments;
                 }
 
+            case "config":
+                {
+                    string source = (GetString(payload, "configSource") ?? Settings.ConfigTableSource ?? string.Empty).Trim();
+                    if (source.Length == 0)
+                    {
+                        throw new InvalidOperationException(
+                            "请先在设置里选择「配置表数据源」目录（ExcelOutput 或包含它的仓库根目录）。");
+                    }
+
+                    if (!Directory.Exists(source))
+                    {
+                        throw new InvalidOperationException($"配置表数据源目录不存在：{source}");
+                    }
+
+                    var arguments = new List<string>
+                    {
+                        gameDataPath, GameRoot,
+                        "--game", game,
+                        "--config_tables", source,
+                    };
+
+                    string[] configNames = GetStringArray(payload, "configNames");
+                    if (configNames.Length > 0)
+                    {
+                        arguments.Add("--config_names");
+                        arguments.AddRange(configNames);
+                    }
+
+                    return arguments;
+                }
+
             default:
                 throw new InvalidOperationException($"未知任务：{kind}");
         }
@@ -1023,6 +1102,9 @@ internal sealed class HostService
             case "index":
                 Profile.MapPath = MapPath();
                 SettingsStore.Save(Settings);
+                break;
+            case "config":
+                RefreshConfigTableCount();
                 break;
         }
     }

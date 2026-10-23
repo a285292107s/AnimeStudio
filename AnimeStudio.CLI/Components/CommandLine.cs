@@ -38,6 +38,8 @@ namespace AnimeStudio.CLI
             rootCommand.Options.Add(optionsBinder.AIFile);
             rootCommand.Options.Add(optionsBinder.DummyDllFolder);
             rootCommand.Options.Add(optionsBinder.ExtractTextMap);
+            rootCommand.Options.Add(optionsBinder.ConfigTables);
+            rootCommand.Options.Add(optionsBinder.ConfigNames);
             rootCommand.Options.Add(optionsBinder.Languages);
             rootCommand.Options.Add(optionsBinder.NoHash);
             rootCommand.Options.Add(optionsBinder.MapFormat);
@@ -70,6 +72,8 @@ namespace AnimeStudio.CLI
         public FileInfo AIFile { get; set; }
         public DirectoryInfo DummyDllFolder { get; set; }
         public bool ExtractTextMap { get; set; }
+        public DirectoryInfo ConfigTables { get; set; }
+        public Regex[] ConfigNames { get; set; }
         public bool NoHash { get; set; }
         public MapFormat MapFormat { get; set; }
         public int Threads { get; set; }
@@ -98,6 +102,8 @@ namespace AnimeStudio.CLI
         public readonly Option<FileInfo> AIFile;
         public readonly Option<DirectoryInfo> DummyDllFolder;
         public readonly Option<bool> ExtractTextMap;
+        public readonly Option<DirectoryInfo> ConfigTables;
+        public readonly Option<Regex[]> ConfigNames;
         public readonly Option<bool> NoHash;
         public readonly Option<MapFormat> MapFormat;
         public readonly Option<int> Threads;
@@ -181,6 +187,17 @@ namespace AnimeStudio.CLI
             ExtractTextMap = new Option<bool>("--textmap")
             {
                 Description = "Extract localized TextMap tables from DesignData packs (no Unity bundle parsing)."
+            };
+            ConfigTables = new Option<DirectoryInfo>("--config_tables")
+            {
+                Description = "Export StarRailData-style config tables (ExcelOutput/*.json) as JSON into <output>/config.",
+                CustomParser = result => result.Tokens.Count == 0 ? null : new DirectoryInfo(result.Tokens[0].Value)
+            };
+            ConfigNames = new Option<Regex[]>("--config_names")
+            {
+                Description = "Only export config tables whose name matches these regexes.",
+                AllowMultipleArgumentsPerToken = true,
+                CustomParser = ParseRegexFilter
             };
             NoHash = new Option<bool>("--no_hash")
             {
@@ -380,6 +397,8 @@ namespace AnimeStudio.CLI
             AIFile = parseResult.GetValue(AIFile),
             DummyDllFolder = parseResult.GetValue(DummyDllFolder),
             ExtractTextMap = parseResult.GetValue(ExtractTextMap),
+            ConfigTables = parseResult.GetValue(ConfigTables),
+            ConfigNames = parseResult.GetValue(ConfigNames),
             NoHash = parseResult.GetValue(NoHash),
             MapFormat = parseResult.GetValue(MapFormat),
             Threads = parseResult.GetValue(Threads),

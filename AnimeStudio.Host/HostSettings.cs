@@ -38,6 +38,9 @@ internal sealed class HostSettings
     /// <summary>Optional explicit CLI path; otherwise auto-detected next to the host.</summary>
     public string? CliPath { get; set; }
 
+    /// <summary>Client config-table dump root (StarRailData-style, contains <c>ExcelOutput/</c>).</summary>
+    public string? ConfigTableSource { get; set; }
+
     public Dictionary<string, GameProfile> Profiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     // Legacy single-game fields, only read for migration.

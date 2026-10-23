@@ -1,3 +1,4 @@
+using AnimeStudio.Application.ConfigTables;
 using AnimeStudio.Application.DesignData;
 using AnimeStudio.Application.Diff;
 using AnimeStudio.Application.Install;
@@ -21,6 +22,7 @@ internal static class Program
         Run("varint", VarintRoundTrip);
         Run("zzz-language", ZzzLanguageDetection);
         Run("install-detection", InstallDetection);
+        Run("config-tables", ConfigTableExport);
         Run("snapshot-diff", SnapshotDiffTests);
 
         Console.WriteLine();
@@ -159,6 +161,50 @@ internal static class Program
             Equal(2, found.Count, "scan count");
             Check(found.Any(install => install.Game == GameInstallScanner.HonkaiStarRail), "scan finds SR");
             Check(found.Any(install => install.Game == GameInstallScanner.ZenlessZoneZero), "scan finds ZZZ");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // temp cleanup only
+            }
+        }
+    }
+
+    /* ---------- config tables ---------- */
+
+    private static void ConfigTableExport()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "anime-tests-config-" + Guid.NewGuid().ToString("N")[..8]);
+
+        try
+        {
+            string repository = Path.Combine(root, "repo");
+            string source = Path.Combine(repository, "ExcelOutput");
+            Directory.CreateDirectory(source);
+            File.WriteAllText(Path.Combine(source, "AvatarConfig.json"), "[{\"AvatarID\":1001},{\"AvatarID\":1002}]");
+            File.WriteAllText(Path.Combine(source, "ItemConfig.json"), "[]");
+            File.WriteAllText(Path.Combine(source, "notes.txt"), "ignored");
+
+            string output = Path.Combine(root, "out");
+            ConfigTableExtractResult result = ConfigTableExporter.Extract(repository, output);
+
+            Equal(2, result.Tables.Count, "table count");
+            Equal(2L, result.Tables.First(table => table.Name == "AvatarConfig").Rows, "array rows");
+            Equal(0L, result.Tables.First(table => table.Name == "ItemConfig").Rows, "empty rows");
+            Check(File.Exists(Path.Combine(output, "config", "AvatarConfig.json")), "table copied");
+            Check(File.Exists(Path.Combine(output, "config", "config.index.json")), "index written");
+
+            ConfigTableExtractResult filtered = ConfigTableExporter.Extract(
+                source,
+                Path.Combine(root, "out-filtered"),
+                new ConfigTableExtractOptions { Filters = ["^Item"] });
+            Equal(1, filtered.Tables.Count, "filtered count");
+            Equal("ItemConfig", filtered.Tables[0].Name, "filtered name");
         }
         finally
         {

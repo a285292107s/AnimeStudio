@@ -266,6 +266,7 @@
     // Images are scanned lazily: a fresh output folder can hold tens of thousands of PNGs,
     // and scanning it on startup / output change made the window briefly unresponsive.
     setImagesDirty();
+    ensureConfigPreset();
 
     APP.pushLog(`宿主已连接${message.host?.cliPath ? '：' + message.host.cliPath : '（未找到 CLI）'}`);
     if (!message.host?.cliPath) {
@@ -404,6 +405,7 @@
   function paintChrome() {
     APP.renderGames();
     APP.renderRail();
+    ensureConfigPreset();
     APP.renderTabs();
     APP.renderLanguageSelect();
     APP.renderInspector();
@@ -521,7 +523,29 @@
     put(4, mapStats ? fmt(mapStats.sprites) : '—');
     put(5, mapStats ? fmt(mapStats.textures) : '—');
 
+    const configCount = $('#configPresetCount');
+    if (configCount) {
+      const count = state.hostState?.configTables || 0;
+      configCount.textContent = count > 0 ? `${fmt(count)} 张表` : '未导出';
+    }
+
     updateWizard();
+  }
+
+  /// <summary>Adds the config-table preset that only the host can run.</summary>
+  function ensureConfigPreset() {
+    const list = $('#presets');
+    if (!list || list.querySelector('[data-preset="config"]')) {
+      return;
+    }
+
+    const item = document.createElement('li');
+    item.className = 'preset';
+    item.innerHTML =
+      '<div class="preset__main"><span class="preset__name">配置表 · ExcelOutput JSON</span>' +
+      '<span class="preset__count" id="configPresetCount">未导出</span></div>' +
+      '<button class="btn btn--xs" data-preset="config">提取</button>';
+    list.appendChild(item);
   }
 
   /// <summary>First-run guidance: only when something is still missing, and only until dismissed.</summary>
@@ -541,6 +565,7 @@
     put('#settingsOutputPath', settings.outputDirectory);
     put('#settingsOutputSR', outputPathFor('SR'));
     put('#settingsOutputZZZ', outputPathFor('ZZZ'));
+    put('#settingsConfigSource', settings.configTableSource);
 
     // Mark the game the rest of the dialog (game dir, map, index) belongs to.
     document.querySelectorAll('#settingsOutputs .outputs__row').forEach((row) => {
@@ -760,7 +785,13 @@
   }
 
   function label(kind) {
-    return kind === 'index' ? '建索引' : kind === 'text' ? '文本提取' : 'UI 图导出';
+    return kind === 'index'
+      ? '建索引'
+      : kind === 'text'
+        ? '文本提取'
+        : kind === 'config'
+          ? '配置表导出'
+          : 'UI 图导出';
   }
 
   function onTaskStarted(message) {
@@ -1255,6 +1286,12 @@
       return;
     }
 
+    if (hit('#settingsPickConfigSource')) {
+      stop(event);
+      call('settings.pick', { target: 'config' });
+      return;
+    }
+
     const pickOutput = hit('[data-pick-output]');
     if (pickOutput) {
       stop(event);
@@ -1305,6 +1342,7 @@
           cliPath: $('#settingsCliPath').value,
           mapPath: $('#settingsMapPath').value,
           indexName: $('#settingsIndexName').value,
+          configTableSource: $('#settingsConfigSource')?.value || '',
           outputDirectories: outputs,
           outputDirectory: outputs[state.settings.game] || '',
         },
@@ -1409,6 +1447,8 @@
         } else {
           runTask('images', { containers: ['spriteoutput/ui'] });
         }
+      } else if (action === 'config') {
+        runTask('config');
       } else {
         APP.switchTab('images');
         ensureImagesLoaded();
