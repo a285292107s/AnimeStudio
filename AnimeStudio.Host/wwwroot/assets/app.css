@@ -249,10 +249,151 @@ button { font: inherit; color: inherit; }
 .path--out { display: block; margin-bottom: 12px; }
 
 .indexmeta {
-  margin: 8px 0 12px;
+  margin: 8px 0 10px;
   font-size: 11px;
   color: var(--faint);
   font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 索引位置 / 占用大小（避免把地图路径误认成输出目录） */
+.indexfacts {
+  margin: 0 0 12px;
+  padding: 9px 10px;
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--rule);
+  background: #0b0b0b;
+}
+
+.indexfacts[hidden] { display: none; }
+
+.indexfacts__row {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+}
+
+.indexfacts__key {
+  flex: none;
+  width: 58px;
+  font-size: 10.5px;
+  color: var(--faint);
+  letter-spacing: 0.04em;
+}
+
+.indexfacts__val {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.indexfacts__badge {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--rule-strong);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.indexfacts__badge--warn {
+  border-color: rgba(224, 176, 64, 0.5);
+  color: var(--warn);
+}
+
+.indexfacts__note {
+  margin-left: auto;
+  font-size: 9.5px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.indexfacts__pathrow {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px dashed var(--rule);
+}
+
+.indexfacts__path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.indexfacts__path.is-manual { color: var(--warn); }
+
+.progress { margin-bottom: 12px; }
+
+.progress__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.progress__stage {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.progress__pct {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress__bar {
+  height: 5px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.progress__bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.25s linear;
+}
+
+.progress__text {
+  margin: 7px 0 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress__meta {
+  margin: 4px 0 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -263,29 +404,6 @@ button { font: inherit; color: inherit; }
   font-size: 10.5px;
   line-height: 1.6;
   color: var(--faint);
-}
-
-.progress { margin-bottom: 12px; }
-
-.progress__bar {
-  height: 3px;
-  background: var(--rule);
-  overflow: hidden;
-}
-
-.progress__bar i {
-  display: block;
-  height: 100%;
-  width: 0;
-  background: var(--accent);
-  transition: width 0.2s linear;
-}
-
-.progress__text {
-  margin: 6px 0 0;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--muted);
 }
 
 /* 统计 */

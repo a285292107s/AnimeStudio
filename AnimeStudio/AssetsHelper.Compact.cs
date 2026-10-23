@@ -149,6 +149,7 @@ namespace AnimeStudio
                 int nextSlot = -1;
                 long completed = 0;
                 long scannedEntries = 0;
+                int lastLoggedPercent = -1;
                 bool stringCacheWasEnabled = StringCache.Enabled;
                 if (workerCount > 1)
                 {
@@ -180,16 +181,28 @@ namespace AnimeStudio
 
                                 int index = pending[slot];
                                 string file = filesList[index];
-                                if (!ProcessCompactFile(manager, file, partPaths[index], batch, containers, hasHash,
-                                        typeFilters, nameFilters, containerFilters, out long entryCount))
+                                bool processed = ProcessCompactFile(manager, file, partPaths[index], batch, containers, hasHash,
+                                    typeFilters, nameFilters, containerFilters, out long entryCount);
+                                if (processed)
                                 {
-                                    continue;
+                                    counts[index] = entryCount;
+                                    Interlocked.Add(ref scannedEntries, entryCount);
                                 }
 
-                                counts[index] = entryCount;
-                                Interlocked.Add(ref scannedEntries, entryCount);
+                                // One line per percent: the Host turns it into the progress bar and
+                                // the log stays short even for 11k+ input files.
                                 long done = Interlocked.Increment(ref completed);
-                                Logger.Info($"[{done}/{pending.Count}] Processed {Path.GetFileName(file)}");
+                                int percentNow = (int)(done * 100 / pending.Count);
+                                int previousPercent = Volatile.Read(ref lastLoggedPercent);
+                                if (percentNow > previousPercent &&
+                                    Interlocked.CompareExchange(ref lastLoggedPercent, percentNow, previousPercent) == previousPercent)
+                                {
+                                    Logger.Info($"[{done}/{pending.Count}] {Path.GetFileName(file)}");
+                                }
+                                else
+                                {
+                                    Logger.Verbose($"[{done}/{pending.Count}] Processed {Path.GetFileName(file)}");
+                                }
                             }
                         }
                         finally
@@ -242,6 +255,7 @@ namespace AnimeStudio
             }
 
             // Assemble the map: fixed header, source list, per-file counts and entries.
+            Logger.Info($"Assembling AssetMap: {fileCount:N0} files, {totalEntries:N0} entries...");
             string partialPath = mapPath + ".partial";
             try
             {
@@ -370,6 +384,21 @@ namespace AnimeStudio
             catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException)
             {
                 Logger.Warning($"Skipping {Path.GetFileName(file)}: {exception.Message}");
+
+                // Keep the file in the map with zero entries so assembly can still stream it.
+                try
+                {
+                    part?.Dispose();
+                    part = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, 16);
+                    part.Write(new byte[8]);
+                    part.Dispose();
+                    part = null;
+                }
+                catch (Exception writeException) when (writeException is IOException or UnauthorizedAccessException)
+                {
+                    // Assembly reports the missing part; nothing else to do here.
+                }
+
                 return false;
             }
             finally

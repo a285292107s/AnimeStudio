@@ -14,6 +14,22 @@
   const $ = (selector) => document.querySelector(selector);
   const nf = new Intl.NumberFormat('zh-CN');
   const fmt = (value) => nf.format(value || 0);
+  const fmtBytes = (bytes) => {
+    if (!bytes || bytes <= 0) {
+      return '—';
+    }
+
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+
+    const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(digits)} ${units[unit]}`;
+  };
   const GAME_NAMES = { SR: '星穹铁道', ZZZ: '绝区零' };
   const nameOfGame = (id) => GAME_NAMES[id] || id || '—';
   const TEXT_PAGE = 200;
@@ -37,6 +53,8 @@
     wizardDismissed: false,
     hintShown: false,
     taskStartedAt: 0,
+    taskKind: '',
+    progressSamples: [],
   };
 
   let seq = 0;
@@ -104,6 +122,9 @@
         APP.pushLog(`[${message.level}] ${message.message}`);
         if (message.level === 'error') {
           APP.setStatus('出错：见日志');
+        }
+        if (state.taskRunning && state.taskKind === 'index') {
+          trackIndexStage(message.message);
         }
         break;
       case 'task.hint':
@@ -315,16 +336,81 @@
     }
 
     const ready = Boolean(state.hostState?.mapExists);
-    $('#indexChipText').textContent = ready ? '索引就绪' : '未建索引';
-    $('#indexChip').classList.toggle('is-busy', !ready);
-    $('#indexMeta').textContent = ready
-      ? `AssetMap 就绪 · ${state.settings.mapPath || ''}`
-      : '还没有索引：点上面的「重建索引」';
-    $('#indexMeta').title = state.settings.mapPath || '';
+    const indexInfo = state.hostState?.indexInfo || {};
+    const mapStats = state.mapStats;
+    const mapPath = state.settings.mapPath || indexInfo.mapPath || '';
+    const mapBytes = mapStats?.mapBytes ?? indexInfo.mapBytes ?? 0;
+    const cacheBytes = mapStats?.cacheBytes ?? indexInfo.cacheBytes ?? 0;
+    const mapFormat = mapStats?.mapFormat ?? indexInfo.mapFormat ?? '';
+
+    $('#indexChipText').textContent = state.taskRunning && state.taskKind === 'index'
+      ? '建索引中…'
+      : ready ? '索引就绪' : '未建索引';
+    $('#indexChip').classList.toggle('is-busy', state.taskRunning || !ready);
+    $('#indexMeta').textContent = state.taskRunning && state.taskKind === 'index'
+      ? '正在建立索引…'
+      : ready
+        ? `索引就绪${mapStats ? ` · ${fmt(mapStats.totalEntries)} 条 / ${fmt(mapStats.sourceFiles)} 个包` : ' · 正在统计…'}`
+        : '还没有索引：点下面的「重建索引」';
+    $('#indexMeta').title = mapPath;
+
+    const buildButton = $('#buildIndex');
+    if (buildButton) {
+      buildButton.disabled = state.taskRunning;
+    }
+
+    // 明确写清楚是「地图文件」而不是输出目录，避免路径被误读。
+    const facts = $('#indexFacts');
+    if (facts) {
+      facts.hidden = !ready;
+    }
+
+    const sizeElement = $('#indexSize');
+    if (sizeElement) {
+      sizeElement.textContent = mapBytes > 0 ? fmtBytes(mapBytes) : '—';
+      sizeElement.title = mapBytes > 0 ? `${fmt(mapBytes)} 字节` : '';
+    }
+
+    const formatElement = $('#indexFormat');
+    if (formatElement) {
+      formatElement.textContent = mapFormat === 'compact'
+        ? 'v2 紧凑'
+        : mapFormat === 'messagepack'
+          ? 'v1 兼容'
+          : '—';
+      formatElement.hidden = !mapFormat;
+    }
+
+    const cacheElement = $('#indexCacheSize');
+    if (cacheElement) {
+      cacheElement.textContent = cacheBytes > 0 ? fmtBytes(cacheBytes) : '—';
+    }
+
+    const cacheNote = document.querySelector('.indexfacts__note');
+    if (cacheNote) {
+      cacheNote.hidden = cacheBytes <= 0;
+    }
+
+    const mapPathElement = $('#indexMapPath');
+    const expectedMapPath = state.settings.outputDirectory && state.settings.indexName
+      ? `${state.settings.outputDirectory}\\index\\${state.settings.indexName}.map`
+      : '';
+    const manual = Boolean(mapPath && expectedMapPath &&
+      mapPath.replace(/\//g, '\\').toLowerCase() !== expectedMapPath.replace(/\//g, '\\').toLowerCase());
+
+    if (mapPathElement) {
+      mapPathElement.textContent = mapPath || '—';
+      mapPathElement.title = mapPath;
+      mapPathElement.classList.toggle('is-manual', manual);
+    }
+
+    const manualElement = $('#indexManual');
+    if (manualElement) {
+      manualElement.hidden = !manual;
+    }
 
     // 统计来自索引（Host 后台扫描）；结果未到时用 — 占位，不显示 mock 数字。
     const values = document.querySelectorAll('#stats dd');
-    const mapStats = state.mapStats;
     const put = (index, text) => {
       if (values[index]) {
         values[index].textContent = text;
@@ -569,9 +655,40 @@
     state.taskRunning = true;
     state.hintShown = false;
     state.taskStartedAt = Date.now();
+    state.taskKind = message.kind || '';
+    state.progressSamples = [];
     APP.setStatus(`${label(message.kind)}进行中…`, true);
     APP.pushLog(`开始${label(message.kind)}`);
     showProgress(`正在${label(message.kind)}…`);
+    paintChrome();
+  }
+
+  function setProgressStage(text) {
+    const element = $('#indexProgressStage');
+    if (element) {
+      element.textContent = text;
+    }
+  }
+
+  function setProgressPercent(text) {
+    const element = $('#indexProgressPercent');
+    if (element) {
+      element.textContent = text;
+    }
+  }
+
+  function setProgressText(text) {
+    const element = $('#indexProgressText');
+    if (element) {
+      element.textContent = text || '—';
+    }
+  }
+
+  function setProgressMeta(text) {
+    const element = $('#indexProgressMeta');
+    if (element) {
+      element.textContent = text;
+    }
   }
 
   function showProgress(text) {
@@ -586,10 +703,10 @@
       bar.parentElement.classList.remove('is-indeterminate');
     }
 
-    const textElement = $('#indexProgressText');
-    if (textElement) {
-      textElement.textContent = text;
-    }
+    setProgressStage(text || '准备中…');
+    setProgressPercent('0%');
+    setProgressText(text || '—');
+    setProgressMeta('已用 0 秒');
 
     const cancel = $('#taskCancel');
     if (cancel) {
@@ -615,15 +732,66 @@
     }
   }
 
+  /// <summary>Maps the CLI's phase log lines to a readable stage label above the bar.</summary>
+  function trackIndexStage(line) {
+    const text = String(line || '');
+    if (!text || !state.taskRunning) {
+      return;
+    }
+
+    if (text.includes('Incremental map cache')) {
+      setProgressStage('检查增量缓存');
+      setProgressText(shortMessage(text));
+    } else if (text.includes('Building AssetMap (Compact)')) {
+      setProgressStage('扫描资源包');
+      const match = text.match(/([\d,]+) files, ([\d,]+) cached, ([\d,]+) to scan/);
+      if (match) {
+        setProgressText(`复用 ${match[2]} 个包，需要重扫 ${match[3]} 个`);
+      }
+    } else if (text.includes('Assembling AssetMap')) {
+      setProgressStage('写入地图');
+      const bar = $('#indexBar');
+      if (bar) {
+        bar.style.width = '100%';
+        bar.parentElement.classList.add('is-indeterminate');
+      }
+
+      setProgressPercent('写入中');
+      setProgressText('正在按顺序写入地图文件…');
+      setProgressMeta(`已用 ${formatDuration(Date.now() - state.taskStartedAt)}`);
+    } else if (text.includes('Incremental cache updated')) {
+      setProgressStage('更新增量缓存');
+      setProgressText(shortMessage(text));
+    } else if (text.includes('AssetMap is up to date')) {
+      setProgressStage('无需重建');
+      setProgressPercent('100%');
+      setProgressText('游戏文件没有变化，直接复用现有地图');
+      setProgressMeta(`已用 ${formatDuration(Date.now() - state.taskStartedAt)}`);
+    } else if (text.includes('Finished building AssetMap')) {
+      setProgressStage('完成');
+      setProgressPercent('100%');
+      setProgressText(shortMessage(text));
+    }
+  }
+
+  function parseProgressCounts(value) {
+    const match = String(value || '').match(/\[(\d+)\s*\/\s*(\d+)\]/);
+    return match ? { done: Number(match[1]), total: Number(match[2]) } : null;
+  }
+
   function onProgress(message) {
     const progress = $('#indexProgress');
     if (progress && progress.hidden) {
       showProgress('进行中…');
     }
 
+    const raw = String(message.message || '');
+    const clean = raw.replace(/^\[(Info|Debug|Warning|Error)\]\s*/i, '');
+    const counts = parseProgressCounts(clean);
+    const fileNameMatch = clean.match(/^\[\d+\s*\/\s*\d+\]\s*(.+)$/);
+    const detail = fileNameMatch ? `扫描 ${fileNameMatch[1]}` : shortMessage(raw);
+    const elapsed = state.taskStartedAt ? Date.now() - state.taskStartedAt : 0;
     const bar = $('#indexBar');
-    const textElement = $('#indexProgressText');
-    const detail = shortMessage(message.message);
 
     if (message.fraction === null || message.fraction === undefined) {
       if (bar) {
@@ -631,31 +799,75 @@
         bar.parentElement.classList.add('is-indeterminate');
       }
 
-      if (textElement) {
-        textElement.textContent = detail || '进行中…';
-      }
+      setProgressPercent('…');
+      setProgressText(detail || '进行中…');
+      setProgressMeta(`已用 ${formatDurationShort(elapsed)}`);
     } else {
       if (bar) {
         bar.style.width = `${Math.round(message.fraction * 100)}%`;
         bar.parentElement.classList.remove('is-indeterminate');
       }
 
-      if (textElement) {
-        textElement.textContent = `${Math.round(message.fraction * 100)}%${etaSuffix(message.fraction)}  ${detail}`.trim();
+      setProgressPercent(`${Math.round(message.fraction * 100)}%`);
+      if (detail) {
+        setProgressText(detail);
       }
+
+      const meta = [];
+      if (counts) {
+        meta.push(`${fmt(counts.done)}/${fmt(counts.total)}`);
+      }
+
+      meta.push(`已用 ${formatDurationShort(elapsed)}`);
+      const remaining = counts ? estimateRemaining(counts) : '';
+      if (remaining) {
+        meta.push(remaining);
+      }
+
+      setProgressMeta(meta.join(' · '));
     }
 
-    APP.setStatus(textElement?.textContent || '进行中…', true);
+    APP.setStatus($('#indexProgressPercent')?.textContent || '进行中…', true);
   }
 
-  function etaSuffix(fraction) {
-    if (!state.taskStartedAt || fraction <= 0.02) {
+  /// <summary>
+  /// ETA from the last ~15 seconds of progress instead of the whole run: HSR bundles differ
+  /// wildly in cost, so a linear estimate from the start keeps sliding. Suppressed for the first
+  /// 20 seconds, when early (cheap) files would make the estimate look far too optimistic.
+  /// </summary>
+  function estimateRemaining(counts) {
+    if (!counts || !counts.total || !counts.done) {
       return '';
     }
 
-    const elapsed = Date.now() - state.taskStartedAt;
-    const remaining = (elapsed * (1 - fraction)) / fraction;
-    return remaining >= 1000 ? ` · 剩余约 ${formatDuration(remaining)}` : '';
+    if (!state.taskStartedAt || Date.now() - state.taskStartedAt < 20000) {
+      return '';
+    }
+
+    const now = Date.now();
+    const samples = state.progressSamples;
+    samples.push({ at: now, done: counts.done });
+    while (samples.length > 2 && now - samples[0].at > 15000) {
+      samples.shift();
+    }
+
+    if (samples.length < 3) {
+      return '';
+    }
+
+    const first = samples[0];
+    const seconds = (now - first.at) / 1000;
+    if (seconds < 1.5) {
+      return '';
+    }
+
+    const rate = (counts.done - first.done) / seconds;
+    if (rate <= 0) {
+      return '';
+    }
+
+    const remaining = (counts.total - counts.done) / rate;
+    return remaining >= 1 ? `剩 ${formatDurationShort(remaining * 1000)}` : '';
   }
 
   function formatDuration(milliseconds) {
@@ -665,6 +877,18 @@
     }
 
     return `${Math.round(seconds / 60)} 分钟`;
+  }
+
+  /// <summary>Compact "11s / 2m05s" form for the one-line progress meta row.</summary>
+  function formatDurationShort(milliseconds) {
+    const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+    if (totalSeconds < 60) {
+      return `${totalSeconds}s`;
+    }
+
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return seconds === 0 ? `${minutes}m` : `${minutes}m${String(seconds).padStart(2, '0')}s`;
   }
 
   function shortMessage(value) {
@@ -678,8 +902,10 @@
 
   function endTask() {
     state.taskRunning = false;
+    state.taskKind = '';
     hideProgress();
     APP.setStatus('就绪');
+    paintChrome();
   }
 
   function onTaskDone(message) {

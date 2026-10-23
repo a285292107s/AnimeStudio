@@ -30,6 +30,8 @@ internal sealed class HostService
 
     private AssetMapScanner.MapStats? _mapStats;
     private string? _mapStatsPath;
+    private long _indexCacheBytes;
+    private string _indexFormat = string.Empty;
     private bool _mapStatsRunning;
     private bool _installScanRunning;
     private int _diffRunning;
@@ -295,6 +297,8 @@ internal sealed class HostService
             _categories = [];
             _mapStats = null;
             _mapStatsPath = null;
+            _indexCacheBytes = 0;
+            _indexFormat = string.Empty;
 
             if (GameRoot.Length > 0)
             {
@@ -352,6 +356,9 @@ internal sealed class HostService
                 : 0,
             mapBytes = SafeFileLength(MapPath()),
             mapPath = MapPath(),
+            cacheBytes = _indexCacheBytes,
+            mapFormat = _indexFormat,
+            mapModified = SafeFileModified(MapPath()),
         },
         outputDirectory = GameRoot,
     };
@@ -438,6 +445,8 @@ internal sealed class HostService
         _categories = [];
         _mapStats = null;
         _mapStatsPath = null;
+        _indexCacheBytes = 0;
+        _indexFormat = string.Empty;
 
         if (GameRoot.Length > 0)
         {
@@ -531,6 +540,8 @@ internal sealed class HostService
         {
             _mapStats = null;
             _mapStatsPath = null;
+            _indexCacheBytes = 0;
+            _indexFormat = string.Empty;
             QueueMapStats(force: true);
         }
     }
@@ -571,6 +582,8 @@ internal sealed class HostService
                 AssetMapScanner.MapStats stats = AssetMapScanner.ScanStats(mapPath);
                 _mapStats = stats;
                 _mapStatsPath = mapPath;
+                _indexCacheBytes = ComputeIndexCacheBytes(mapPath);
+                _indexFormat = DetectMapFormat(mapPath);
                 SendMapStats();
             }
             catch (Exception exception)
@@ -600,6 +613,11 @@ internal sealed class HostService
             textures = _mapStats.CountOf(ClassIDType.Texture2D),
             textAssets = _mapStats.CountOf(ClassIDType.TextAsset),
             elapsedMs = (long)_mapStats.Elapsed.TotalMilliseconds,
+            mapPath = _mapStatsPath,
+            mapBytes = SafeFileLength(_mapStatsPath),
+            cacheBytes = _indexCacheBytes,
+            mapFormat = _indexFormat,
+            mapModified = SafeFileModified(_mapStatsPath),
         });
     }
 
@@ -1384,6 +1402,97 @@ internal sealed class HostService
         {
             return 0;
         }
+    }
+
+    private static string? SafeFileModified(string path)
+    {
+        try
+        {
+            return !string.IsNullOrWhiteSpace(path) && File.Exists(path)
+                ? new FileInfo(path).LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>"compact" (v2) / "messagepack" (v1) / "unknown"; read from the map's magic bytes.</summary>
+    private static string DetectMapFormat(string? path)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            {
+                return string.Empty;
+            }
+
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16);
+            Span<byte> magic = stackalloc byte[4];
+            int read = stream.Read(magic);
+            if (read == 4 && magic.SequenceEqual(AssetMapV2.MagicBytes))
+            {
+                return "compact";
+            }
+
+            return read > 0 && magic[0] == 0x92 ? "messagepack" : "unknown";
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return "unknown";
+        }
+    }
+
+    /// <summary>
+    /// Size of the incremental map cache that sits next to the map file
+    /// (<c>&lt;index dir&gt;\.cache\&lt;name&gt;.mapcache</c>). Zero for maps built before the cache existed.
+    /// </summary>
+    private static long ComputeIndexCacheBytes(string? mapPath)
+    {
+        try
+        {
+            string? directory = IndexCacheDirectory(mapPath);
+            if (directory is null || !Directory.Exists(directory))
+            {
+                return 0;
+            }
+
+            long total = 0;
+            foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    total += new FileInfo(file).Length;
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // The cache can be rewritten while we count; skip the flaky entry.
+                }
+            }
+
+            return total;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+
+    private static string? IndexCacheDirectory(string? mapPath)
+    {
+        if (string.IsNullOrWhiteSpace(mapPath))
+        {
+            return null;
+        }
+
+        string? directory = Path.GetDirectoryName(mapPath);
+        if (string.IsNullOrEmpty(directory))
+        {
+            return null;
+        }
+
+        return Path.Combine(directory, ".cache", Path.GetFileNameWithoutExtension(mapPath) + ".mapcache");
     }
 
     private static int? GetInt(JsonElement element, string property)

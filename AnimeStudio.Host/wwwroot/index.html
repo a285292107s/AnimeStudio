@@ -36,13 +36,38 @@
         <button class="btn btn--ghost btn--xs" id="pickPath" title="选择一个游戏安装目录">更换</button>
       </div>
       <p class="indexmeta" id="indexMeta">—</p>
+
+      <div class="indexfacts" id="indexFacts" hidden>
+        <div class="indexfacts__row">
+          <span class="indexfacts__key">地图</span>
+          <b class="indexfacts__val" id="indexSize">—</b>
+          <span class="indexfacts__badge" id="indexFormat">—</span>
+          <span class="indexfacts__badge indexfacts__badge--warn" id="indexManual" hidden>手动指定</span>
+        </div>
+        <div class="indexfacts__row">
+          <span class="indexfacts__key">增量缓存</span>
+          <b class="indexfacts__val" id="indexCacheSize">—</b>
+          <span class="indexfacts__note">下次重建只扫变化的包</span>
+        </div>
+        <div class="indexfacts__pathrow">
+          <span class="indexfacts__key">读取自</span>
+          <code class="indexfacts__path" id="indexMapPath" title="">—</code>
+        </div>
+      </div>
+
       <div class="progress" id="indexProgress" hidden>
+        <div class="progress__head">
+          <span class="progress__stage" id="indexProgressStage">准备中…</span>
+          <b class="progress__pct" id="indexProgressPercent">0%</b>
+        </div>
         <div class="progress__bar"><i id="indexBar"></i></div>
-        <p class="progress__text" id="indexProgressText">准备中…</p>
+        <p class="progress__text" id="indexProgressText">—</p>
+        <p class="progress__meta" id="indexProgressMeta">已用 0 秒</p>
         <button class="btn btn--xs btn--ghost" id="taskCancel" hidden>取消任务</button>
       </div>
+
       <button class="btn btn--accent" id="buildIndex">重建索引</button>
-      <p class="hint">索引只记录「哪个资源在哪个 block 里」，不导出文件。首次几分钟（多线程），之后游戏更新只重扫变化的包，几秒完成。</p>
+      <p class="hint">索引只记录「哪个资源在哪个 block 里」，不导出文件。首次几分钟（4 线程），之后游戏更新只重扫变化的包，通常几秒完成。</p>
     </section>
 
     <section class="rail__block">
