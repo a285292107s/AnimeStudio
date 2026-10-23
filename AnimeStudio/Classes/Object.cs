@@ -1,4 +1,4 @@
-﻿using K4os.Hash.xxHash;
+using K4os.Hash.xxHash;
 using Newtonsoft.Json;
 using System;
 using System.Buffers;
@@ -42,7 +42,10 @@ namespace AnimeStudio
             serializedType = reader.serializedType;
             byteSize = reader.byteSize;
 
-            Logger.Verbose($"Attempting to read object {type} with {m_PathID} in file {assetsFile.fileName}, starting from offset 0x{reader.byteStart:X8} with size of 0x{byteSize:X8} !!");
+            if (Logger.IsVerboseEnabled)
+            {
+                Logger.Verbose($"Attempting to read object {type} with {m_PathID} in file {assetsFile.fileName}, starting from offset 0x{reader.byteStart:X8} with size of 0x{byteSize:X8} !!");
+            }
 
             if (platform == BuildTarget.NoTarget)
             {
@@ -70,7 +73,11 @@ namespace AnimeStudio
         /// </summary>
         private ulong ComputeRawHash()
         {
-            Logger.Verbose($"Hashing raw bytes of the object with {m_PathID} in file {assetsFile.fileName}...");
+            if (Logger.IsVerboseEnabled)
+            {
+                Logger.Verbose($"Hashing raw bytes of the object with {m_PathID} in file {assetsFile.fileName}...");
+            }
+
             long pos = reader.Position;
             reader.Reset();
 

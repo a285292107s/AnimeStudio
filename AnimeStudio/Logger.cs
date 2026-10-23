@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -15,6 +15,12 @@ namespace AnimeStudio
 
         public static bool Silent { get; set; }
         public static LoggerEvent Flags { get; set; }
+
+        /// <summary>
+        /// Cheap check for hot paths that would otherwise build an interpolated message for a
+        /// logger that is disabled by default (map builds call this once per object).
+        /// </summary>
+        public static bool IsVerboseEnabled => !Silent && Flags.HasFlag(LoggerEvent.Verbose);
 
         public static bool FileLogging
         {

@@ -1,5 +1,7 @@
 using System;
 using System.Buffers;
+using System.Buffers.Binary;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
@@ -20,6 +22,65 @@ namespace AnimeStudio
         public const string MapName = "Maps";
 
         public static bool Minimal = true;
+
+        /// <summary>
+        /// Skip xxHash computation while building maps. The hash column is a legacy feature the
+        /// Host never reads; skipping it removes one full read of every asset's bytes.
+        /// </summary>
+        public static bool SkipHash;
+
+        private const int MessagePackMapHeaderSize = 11; // fixarray(2) + int32 game + array32 count
+        private const long GcAllocationThreshold = 512L * 1024 * 1024;
+        private static long lastGcAllocatedBytes;
+
+        /// <summary>Set ANIMESTUDIO_MAP_PROFILE=1 to get a phase breakdown after a map build.</summary>
+        public static bool Profile;
+
+        private static long profileLoadTicks;
+        private static long profileProcessTicks;
+        private static long profileHashTicks;
+        private static long profileSerializeTicks;
+        private static long profileBundleCallbacks;
+        private static long profileStartAllocated;
+        private static int profileStartGen2;
+
+        private static double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
+
+        private static void LogProfileBreakdown(long entryCount)
+        {
+            if (!Profile)
+            {
+                return;
+            }
+
+            double processMs = Ms(profileProcessTicks);
+            double hashMs = Ms(profileHashTicks);
+            double serializeMs = Ms(profileSerializeTicks);
+            Logger.Info(
+                $"[profile] entries={entryCount:N0} bundles={profileBundleCallbacks:N0} " +
+                $"load={Ms(profileLoadTicks):F0} ms (incl. process), process={processMs:F0} ms " +
+                $"(hash={hashMs:F0} ms, serialize={serializeMs:F0} ms), " +
+                $"allocated={(GC.GetTotalAllocatedBytes(precise: false) - profileStartAllocated) / (1024 * 1024)} MB, " +
+                $"gen2={GC.CollectionCount(2) - profileStartGen2}");
+        }
+
+        /// <summary>
+        /// The map builder used to force a gen-2 GC after every inner bundle and every 32 files
+        /// to keep HSR's decompressed LOH buffers from piling up. Collecting that often burns CPU;
+        /// collect on an allocation budget instead, which keeps the working set flat without
+        /// thousands of forced GCs.
+        /// </summary>
+        private static void MaybeCollectGarbage()
+        {
+            long allocated = GC.GetTotalAllocatedBytes(precise: false);
+            if (allocated - lastGcAllocatedBytes < GcAllocationThreshold)
+            {
+                return;
+            }
+
+            lastGcAllocatedBytes = allocated;
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
+        }
 
         /// <summary>
         /// Set by <see cref="BuildAssetMap"/> when the map build threw. Callers use it to
@@ -189,6 +250,17 @@ namespace AnimeStudio
             var toReadFile = ImportHelper.ProcessingSplitFiles(files.ToList());
 
             var filesList = new List<string>(toReadFile);
+
+            void InvokeProcess(string currentFile)
+            {
+                long start = Profile ? Stopwatch.GetTimestamp() : 0;
+                process(currentFile);
+                if (Profile)
+                {
+                    profileProcessTicks += Stopwatch.GetTimestamp() - start;
+                }
+            }
+
             for (int i = 0; i < filesList.Count; i++)
             {
                 var file = filesList[i];
@@ -208,7 +280,12 @@ namespace AnimeStudio
                     processedViaCallback = true;
                     if (assetsManager.assetsFileList.Count > 0)
                     {
-                        process(file);
+                        if (Profile)
+                        {
+                            profileBundleCallbacks++;
+                        }
+
+                        InvokeProcess(file);
                     }
                     // Free CAB/resource streams before the next bundle in this block loads.
                     // Keep assetsFileListHash so duplicate CAB names in later bundles are skipped.
@@ -217,12 +294,14 @@ namespace AnimeStudio
                     // A single HSR .block can contain 100+ ENCRs; without this the cache grows
                     // for the entire outer file and pins multi-GB of unique path strings.
                     StringCache.Clear();
-                    // Multi-bundle HSR blocks decompress LOH buffers per ENCR. Without an
-                    // explicit gen-2 collection those buffers stay alive until a later GC,
-                    // and private bytes climb by tens of MB × hundreds of ENCRs (OOM).
-                    GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
+                    // Multi-bundle HSR blocks decompress LOH buffers per ENCR. Without an explicit
+                    // collection those buffers stay alive until a later GC, and private bytes climb
+                    // by tens of MB × hundreds of ENCRs (OOM). Collect on an allocation budget
+                    // rather than after every bundle: same safety margin, far fewer forced GCs.
+                    MaybeCollectGarbage();
                 };
 
+                long loadStart = Profile ? Stopwatch.GetTimestamp() : 0;
                 try
                 {
                     assetsManager.LoadFiles(new[] { file }, mergeSplitAssets: false);
@@ -230,12 +309,16 @@ namespace AnimeStudio
                 finally
                 {
                     assetsManager.AfterBundleLoaded = null;
+                    if (Profile)
+                    {
+                        profileLoadTicks += Stopwatch.GetTimestamp() - loadStart;
+                    }
                 }
 
                 // Non-bundle assets files never trip AfterBundleLoaded — process once here.
                 if (!processedViaCallback && assetsManager.assetsFileList.Count > 0)
                 {
-                    process(file);
+                    InvokeProcess(file);
                     processedViaCallback = true;
                 }
 
@@ -255,7 +338,7 @@ namespace AnimeStudio
                 // thousands of files until the OS OOM-kills the process.
                 if ((i + 1) % 32 == 0)
                 {
-                    GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, blocking: false, compacting: false);
+                    MaybeCollectGarbage();
                 }
             }
         }
@@ -414,6 +497,8 @@ namespace AnimeStudio
         /// <summary>
         /// Stream asset-map entries to disk while scanning so we never hold tens of millions of
         /// AssetEntry objects in RAM (the HSR OOM root cause for full-directory map builds).
+        /// The MessagePack map is written straight into a <c>.partial</c> file with a reserved
+        /// header and renamed on success: one write pass, and a failed rebuild keeps the old map.
         /// </summary>
         private static void BuildAssetMapStreaming(string[] files, string mapName, Game game, string savePath, ExportListType exportListType, ClassIDType[] typeFilters, Regex[] nameFilters, Regex[] containerFilters)
         {
@@ -422,20 +507,40 @@ namespace AnimeStudio
 
             var entryCount = 0L;
             var mpOptions = MessagePackSerializerOptions.Standard;
-            string tempEntriesPath = null;
-            FileStream tempEntries = null;
+            var entryBuffer = new ArrayBufferWriter<byte>(1 << 16);
+            FileStream output = null;
+            string partialPath = null;
+            string mapPath = null;
             XmlWriter xmlWriter = null;
             string xmlPath = null;
-            string mapPath = null;
+
+            lastGcAllocatedBytes = GC.GetTotalAllocatedBytes(precise: false);
+            if (Profile)
+            {
+                profileLoadTicks = profileProcessTicks = profileHashTicks = profileSerializeTicks = 0;
+                profileBundleCallbacks = 0;
+                profileStartAllocated = GC.GetTotalAllocatedBytes(precise: false);
+                profileStartGen2 = GC.CollectionCount(2);
+            }
 
             try
             {
                 if (exportListType.HasFlag(ExportListType.MessagePack))
                 {
-                    tempEntriesPath = Path.Combine(Path.GetTempPath(), $"animestudio-map-{Guid.NewGuid():N}.tmp");
-                    tempEntries = new FileStream(tempEntriesPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 64, FileOptions.SequentialScan);
                     mapPath = Path.Combine(savePath, $"{mapName}.map");
+                    partialPath = mapPath + ".partial";
+                    output = new FileStream(partialPath, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, FileOptions.SequentialScan);
+
+                    // Reserved header: [2, gameType:int32, entries:array32<count>].
+                    // The count is filled in after the scan; its width never changes.
+                    Span<byte> header = stackalloc byte[MessagePackMapHeaderSize];
+                    header[0] = 0x92; // fixarray(2)
+                    header[1] = 0xCE; // int32
+                    BinaryPrimitives.WriteInt32BigEndian(header[2..], (int)game.Type);
+                    header[6] = 0xDD; // array32
+                    output.Write(header);
                 }
+
                 if (exportListType.HasFlag(ExportListType.XML))
                 {
                     xmlPath = Path.Combine(savePath, $"{mapName}.xml");
@@ -458,9 +563,21 @@ namespace AnimeStudio
                     foreach (var asset in batch)
                     {
                         entryCount++;
-                        if (tempEntries != null)
+                        if (output != null)
                         {
-                            MessagePackSerializer.Serialize(tempEntries, asset, mpOptions);
+                            // Serialize into a reusable buffer instead of one stream call per
+                            // entry: HSR writes 7.3M entries and per-call overhead adds up.
+                            long serializeStart = Profile ? Stopwatch.GetTimestamp() : 0;
+                            MessagePackSerializer.Serialize(entryBuffer, asset, mpOptions);
+                            if (entryBuffer.WrittenCount >= 1 << 16)
+                            {
+                                output.Write(entryBuffer.WrittenSpan);
+                                entryBuffer.ResetWrittenCount();
+                            }
+                            if (Profile)
+                            {
+                                profileSerializeTicks += Stopwatch.GetTimestamp() - serializeStart;
+                            }
                         }
                         if (xmlWriter != null)
                         {
@@ -485,46 +602,44 @@ namespace AnimeStudio
                     xmlWriter.Flush();
                 }
 
-                if (tempEntries != null)
+                if (output != null)
                 {
-                    tempEntries.Flush();
-                    tempEntries.Dispose();
-                    tempEntries = null;
+                    if (entryBuffer.WrittenCount > 0)
+                    {
+                        output.Write(entryBuffer.WrittenSpan);
+                        entryBuffer.ResetWrittenCount();
+                    }
 
-                    // Assemble final MessagePack AssetMap = [GameType, AssetEntries[]]
-                    // Uncompressed payload; MessagePack's Lz4BlockArray reader still accepts it.
-                    using var output = new FileStream(mapPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 64);
-                    var header = new ArrayBufferWriter<byte>(16);
-                    var writer = new MessagePackWriter(header);
-                    writer.WriteArrayHeader(2);
-                    writer.Write((int)game.Type);
                     if (entryCount > int.MaxValue)
                     {
                         throw new InvalidOperationException($"Asset map has {entryCount} entries which exceeds MessagePack array limits.");
                     }
-                    writer.WriteArrayHeader((int)entryCount);
-                    writer.Flush();
-                    output.Write(header.WrittenSpan);
 
-                    using (var input = new FileStream(tempEntriesPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 64, FileOptions.SequentialScan | FileOptions.DeleteOnClose))
-                    {
-                        input.CopyTo(output);
-                    }
-                    tempEntriesPath = null; // DeleteOnClose handled it
+                    Span<byte> countBytes = stackalloc byte[4];
+                    BinaryPrimitives.WriteUInt32BigEndian(countBytes, (uint)entryCount);
+                    output.Position = 7; // 0x92, 0xCE, game:int32, 0xDD
+                    output.Write(countBytes);
+                    output.Flush();
+                    output.Dispose();
+                    output = null;
+
+                    File.Move(partialPath, mapPath, overwrite: true);
+                    partialPath = null;
                 }
 
                 if (!exportListType.Equals(ExportListType.None))
                 {
+                    LogProfileBreakdown(entryCount);
                     Logger.Info($"Finished building AssetMap with {entryCount} assets.");
                 }
             }
             finally
             {
                 xmlWriter?.Dispose();
-                tempEntries?.Dispose();
-                if (tempEntriesPath != null && File.Exists(tempEntriesPath))
+                output?.Dispose();
+                if (partialPath != null && File.Exists(partialPath))
                 {
-                    try { File.Delete(tempEntriesPath); } catch { /* best-effort */ }
+                    try { File.Delete(partialPath); } catch { /* best-effort */ }
                 }
             }
         }
@@ -681,9 +796,17 @@ namespace AnimeStudio
                         // shaders/meshes): streaming hash is correct but pointless for map
                         // identity when the raw payload dwarfs the rest of the entry.
                         const uint largeHashSkip = 16u * 1024 * 1024;
-                        asset.Hash = hashSource.byteSize >= largeHashSkip
-                            ? $"size:{hashSource.byteSize:x}"
-                            : hashSource.GetHash();
+                        long hashStart = Profile ? Stopwatch.GetTimestamp() : 0;
+                        asset.Hash = SkipHash
+                            ? string.Empty
+                            : hashSource.byteSize >= largeHashSkip
+                                ? $"size:{hashSource.byteSize:x}"
+                                : hashSource.GetHash();
+                        if (Profile)
+                        {
+                            profileHashTicks += Stopwatch.GetTimestamp() - hashStart;
+                        }
+
                         matches.Add(asset);
                     }
                 }

@@ -61,6 +61,8 @@ namespace AnimeStudio.CLI
                 Logger.Flags = o.LoggerFlags.Aggregate((e, x) => e |= x);
                 Logger.FileLogging = Settings.Default.enableFileLogging;
                 AssetsHelper.Minimal = Settings.Default.minimalAssetMap;
+                AssetsHelper.SkipHash = o.NoHash;
+                AssetsHelper.Profile = Environment.GetEnvironmentVariable("ANIMESTUDIO_MAP_PROFILE") == "1";
                 AssetsHelper.SetUnityVersion(o.UnityVersion);
 
                 if (o.ExtractTextMap)
