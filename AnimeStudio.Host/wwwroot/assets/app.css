@@ -1060,3 +1060,6 @@ button { font: inherit; color: inherit; }
 .asset-row__container { color: var(--muted); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-row__type { color: var(--accent); font-family: var(--mono); font-size: 10.5px; }
 .asset-row__source, .asset-row__pathid { color: var(--faint); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.toolbar--wrap > .btn { width: auto; }
+
