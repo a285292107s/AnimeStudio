@@ -105,11 +105,11 @@
   <main class="main">
 
     <div class="tabs" role="tablist" aria-label="内容视图">
-      <button class="tab is-active" role="tab" aria-selected="true" data-tab="images">
-        UI 图库 <em id="tabImageCount">—</em>
-      </button>
-      <button class="tab" role="tab" aria-selected="false" data-tab="assets" hidden>
+      <button class="tab is-active" role="tab" aria-selected="true" data-tab="assets">
         资源浏览 <em id="tabAssetCount">—</em>
+      </button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="images">
+        UI 图库 <em id="tabImageCount">—</em>
       </button>
       <button class="tab" role="tab" aria-selected="false" data-tab="log">
         日志
@@ -118,8 +118,8 @@
       <button class="btn btn--ghost btn--xs" id="togglePanel" title="显示 / 隐藏详情面板">详情面板</button>
     </div>
 
-    <!-- 资源浏览（直接查 AssetMap，按容器/名称过滤） -->
-    <section class="pane" data-pane="assets" role="tabpanel" hidden>
+    <!-- 资源浏览：查 AssetMap、勾选要导出的资源 -->
+    <section class="pane is-active" data-pane="assets" role="tabpanel">
       <div class="toolbar toolbar--wrap">
         <label class="field field--inline"><span>名称</span><input id="assetName" type="search" placeholder="名称包含…" autocomplete="off"></label>
         <label class="field field--inline"><span>容器</span><input id="assetContainer" type="search" placeholder="如 spriteoutput/ui/fonts" autocomplete="off"></label>
@@ -127,7 +127,8 @@
         <label class="field field--inline">
           <span>类型</span>
           <select id="assetType">
-            <option value="all">全部</option>
+            <option value="image" selected>图像（Sprite + Texture2D）</option>
+            <option value="all">全部类型</option>
             <option value="Sprite">Sprite</option>
             <option value="Texture2D">Texture2D</option>
             <option value="TextAsset">TextAsset</option>
@@ -138,20 +139,30 @@
           </select>
         </label>
         <button class="btn btn--accent btn--xs" id="assetSearch">搜索</button>
-        <button class="btn btn--ghost btn--xs" id="assetExport" title="把当前过滤条件交给 CLI 导出">导出过滤结果</button>
+        <button class="btn btn--ghost btn--xs" id="assetReset" title="清空四个过滤条件并重新查询">清空筛选</button>
         <span class="count" id="assetCount">—</span>
       </div>
+
+      <div class="assetbar" id="assetBar">
+        <span class="assetbar__sum"><b id="assetSelectedCount">0</b> 项已选</span>
+        <button class="btn btn--xs" id="assetExportSelected" disabled>导出所选 PNG</button>
+        <button class="btn btn--xs btn--ghost" id="assetExportAll" title="把当前过滤条件交给 CLI，导出全部匹配项">导出全部匹配</button>
+        <button class="btn btn--xs btn--ghost" id="assetClearSelection" disabled>清空选择</button>
+        <div class="toolbar__spacer"></div>
+        <span class="count" id="assetSelectionHint">勾选行 → 导出；导出结果在图库预览</span>
+      </div>
+
       <div class="asset-table" id="assetList">
-        <div class="asset-table__empty">输入容器或名称后点「搜索」。容器支持子串匹配，例如 <code>spriteoutput/ui/fonts</code>。</div>
+        <div class="asset-table__empty">还没有查询。输入容器或名称后点「搜索」，或直接点打开本页自动列出前 300 条。</div>
       </div>
     </section>
 
-    <!-- UI 图库 -->
-    <section class="pane is-active" data-pane="images" role="tabpanel">
+    <!-- UI 图库：只负责预览已导出的图片 -->
+    <section class="pane" data-pane="images" role="tabpanel" hidden>
       <div class="toolbar">
         <label class="search">
           <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-          <input id="imageSearch" type="search" placeholder="搜索资源名…" autocomplete="off">
+          <input id="imageSearch" type="search" placeholder="搜索已导出的图片…" autocomplete="off">
         </label>
         <div class="chips" id="imageFilters"></div>
         <div class="toolbar__spacer"></div>
@@ -161,8 +172,11 @@
           <span class="count" id="imagePageInfo">—</span>
           <button class="btn btn--xs btn--ghost" data-page="next" title="下一页">›</button>
         </div>
-        <button class="btn btn--ghost btn--xs" id="imageClear">清空选择</button>
-        <button class="btn btn--xs" id="imageExport">导出 PNG</button>
+        <div class="density" id="imageDensity" role="group" aria-label="缩略图大小">
+          <button data-size="sm" title="小图">S</button>
+          <button data-size="md" class="is-active" title="中图">M</button>
+          <button data-size="lg" title="大图">L</button>
+        </div>
       </div>
 
       <div class="grid" id="imageGrid"></div>
@@ -201,6 +215,30 @@
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<!-- 大图预览：图库只负责「看清一张图」 -->
+<div class="viewer" id="viewer" hidden>
+  <div class="viewer__bar">
+    <div class="viewer__ident">
+      <b id="viewerTitle">—</b>
+      <span id="viewerMeta">—</span>
+    </div>
+    <div class="toolbar__spacer"></div>
+    <button class="btn btn--xs btn--ghost" id="viewerZoomOut" title="缩小（-）">−</button>
+    <button class="btn btn--xs btn--ghost" id="viewerZoomReset" title="适应窗口（0）">适应</button>
+    <button class="btn btn--xs btn--ghost" id="viewerZoomIn" title="放大（+）">＋</button>
+    <button class="btn btn--xs btn--ghost" id="viewerClose" title="关闭（Esc）">关闭</button>
+  </div>
+  <div class="viewer__stage" id="viewerStage">
+    <img id="viewerImage" alt="" draggable="false">
+    <button class="viewer__nav viewer__nav--prev" id="viewerPrev" title="上一张（←）">‹</button>
+    <button class="viewer__nav viewer__nav--next" id="viewerNext" title="下一张（→）">›</button>
+  </div>
+  <div class="viewer__foot">
+    <span id="viewerIndex">—</span>
+    <span class="viewer__keys">ESC 关闭 · ← → 切换 · 滚轮缩放 · 双击 1:1 · 拖拽平移</span>
+  </div>
+</div>
 
 <div class="welcome" id="settings" hidden>
   <div class="welcome__card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">

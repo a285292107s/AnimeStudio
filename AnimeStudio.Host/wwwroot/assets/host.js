@@ -43,7 +43,6 @@
     mapStats: null,
     imageOffset: 0,
     imageTotal: 0,
-    imageNames: new Map(),
     pendingExport: null,
     category: 'all',
     wizardDismissed: false,
@@ -58,6 +57,10 @@
     assetsDirty: true,
     assetsLoading: false,
     assetsQueued: false,
+    // 资源浏览里勾中的行：key -> { name, type }；key 由 类型+PathID+来源 组成。
+    assetSelected: new Map(),
+    assetRows: [],
+    assetAnchor: -1,
   };
 
   let seq = 0;
@@ -259,6 +262,7 @@
     APP.state.images = [];
     APP.state.data.containers = [];
     APP.state.data.stats.uiSprites = 0;
+    APP.state.galleryLoaded = false;
     APP.renderImageGrid();
 
     // Images are scanned lazily: a fresh output folder can hold tens of thousands of PNGs,
@@ -267,6 +271,14 @@
     if (document.querySelector('.tab.is-active')?.dataset.tab === 'images') {
       ensureImagesLoaded();
     }
+
+    // 资源浏览是默认页：启动后自动列出前 300 条，省掉一次「搜索」。
+    setTimeout(() => {
+      if (document.querySelector('.tab.is-active')?.dataset.tab === 'assets' &&
+          state.assetsDirty && !state.assetsLoading) {
+        refreshAssets();
+      }
+    }, 600);
 
     APP.pushLog(`宿主已连接${message.host?.cliPath ? '：' + message.host.cliPath : '（未找到 CLI）'}`);
     if (!message.host?.cliPath) {
@@ -293,6 +305,7 @@
   function resetOutputViews() {
     APP.state.images = [];
     APP.state.data.stats.uiSprites = 0;
+    APP.state.galleryLoaded = false;
     state.imageOffset = 0;
     state.imageTotal = 0;
     state.category = 'all';
@@ -490,7 +503,7 @@
 
     put(0, mapStats ? fmt(mapStats.totalEntries) : '—');
     put(1, mapStats ? fmt(mapStats.sourceFiles) : '—');
-    put(2, mapStats ? fmt(state.hostState?.images ?? 0) : '—');
+    put(2, APP.state.galleryLoaded ? fmt(APP.state.data.stats.uiSprites) : '—');
     put(3, mapStats ? fmt(mapStats.sprites) : '—');
     put(4, mapStats ? fmt(mapStats.textures) : '—');
 
@@ -579,6 +592,30 @@
 
   /* ---------- 真实数据加载 ---------- */
 
+  /// <summary>
+  /// Gallery viewer reached the edge of the loaded page: fetch the neighbouring page and open
+  /// its end image, so ←/→ keeps walking through the whole result set instead of stopping.
+  /// </summary>
+  async function pageTurn(delta) {
+    if (state.imagesLoading || state.imageTotal <= 0) {
+      return false;
+    }
+
+    const nextOffset = state.imageOffset + delta * IMAGE_PAGE;
+    if (nextOffset < 0 || nextOffset >= state.imageTotal) {
+      return false;
+    }
+
+    await loadImages($('#imageSearch')?.value || '', nextOffset, state.category);
+
+    if (state.imageOffset !== nextOffset || APP.state.images.length === 0) {
+      return false;
+    }
+
+    APP.openViewerAt(delta > 0 ? 0 : APP.state.images.length - 1);
+    return true;
+  }
+
   async function loadImages(query, offset = 0, category = 'all') {
     state.imagesLoading = true;
     try {
@@ -602,6 +639,7 @@
       state.category = category || 'all';
       state.imageOffset = response.offset || 0;
       state.imageTotal = response.total || 0;
+      APP.state.galleryLoaded = true;
 
       APP.state.images = (response.items || []).map((item) => ({
         id: item.relativePath,
@@ -616,11 +654,6 @@
         kind: 'Sprite',
         block: '',
       }));
-
-      // Keep a name registry so a selection spread over several pages can still be exported.
-      (response.items || []).forEach((item) => {
-        state.imageNames.set(item.relativePath, item.name);
-      });
 
       if (response.categories?.length) {
         APP.state.data.containers = response.categories.map((entry) => ({
@@ -690,6 +723,7 @@
     APP.pushLog(`开始${label(message.kind)}`);
     showProgress(`正在${label(message.kind)}…`);
     paintChrome();
+    updateAssetSelectionUi();
   }
 
   function setProgressStage(text) {
@@ -935,6 +969,7 @@
     hideProgress();
     APP.setStatus('就绪');
     paintChrome();
+    updateAssetSelectionUi();
   }
 
   function onTaskDone(message) {
@@ -966,6 +1001,14 @@
       setImagesDirty();
       if (document.querySelector('.tab.is-active')?.dataset.tab === 'images') {
         ensureImagesLoaded();
+      }
+
+      // 导出跑完，勾选就没用了；顺手把人往图库引一下。
+      if (message.ok) {
+        clearAssetSelection();
+        if (pending?.fromSelection) {
+          APP.toast('导出完成：去「UI 图库」看结果');
+        }
       }
     }
 
@@ -1020,15 +1063,27 @@
   const ASSET_NO_MAP =
     '<div class="asset-table__empty">还没有 AssetMap：先在左侧点「重建索引」，完成后这里会自动刷新。</div>';
 
+  const EXPORT_NAME_LIMIT = 400;
+
   /// <summary>Filters currently typed into the Asset Browser toolbar.</summary>
   function assetFilters() {
     return {
       name: $('#assetName')?.value || '',
       container: $('#assetContainer')?.value || '',
       source: $('#assetSource')?.value || '',
-      types: [$('#assetType')?.value || 'all'].filter((type) => type !== 'all'),
+      types: assetTypes(),
       limit: 300,
     };
+  }
+
+  /// <summary>「图像」是 Sprite + Texture2D：导出 PNG 只可能是这两类。</summary>
+  function assetTypes() {
+    const value = $('#assetType')?.value || 'image';
+    if (value === 'all') {
+      return [];
+    }
+
+    return value === 'image' ? ['Sprite', 'Texture2D'] : [value];
   }
 
   /// <summary>Drops the rows read from the previous map and marks the pane as needing a query.</summary>
@@ -1037,6 +1092,9 @@
     assetGeneration += 1;
     state.assetsLoaded = false;
     state.assetsDirty = true;
+    state.assetRows = [];
+    state.assetAnchor = -1;
+    clearAssetSelection();
 
     const list = $('#assetList');
     if (list) {
@@ -1132,46 +1190,214 @@
       return;
     }
 
-    if (items.length === 0) {
+    state.assetRows = items.map((item) => ({
+      key: assetKey(item),
+      name: item.name || '',
+      container: item.container || '',
+      type: item.type || '',
+      source: item.source || '',
+      sourcePath: item.sourcePath || '',
+      pathId: String(item.pathId),
+    }));
+    state.assetAnchor = -1;
+
+    if (state.assetRows.length === 0) {
       list.innerHTML = '<div class="asset-table__empty">没有匹配的条目。容器支持子串，例如 <code>spriteoutput/ui/fonts</code>。</div>';
+      updateAssetSelectionUi();
       return;
     }
 
-    const head = '<div class="asset-row asset-row--head"><span>名称</span><span>容器</span><span>类型</span><span>来源</span><span>PathID</span></div>';
-    const rows = items
-      .map((item) => {
-        const pathId = String(item.pathId);
-        return `<div class="asset-row" title="${escapeHtml(item.sourcePath || '')}">
-          <span class="asset-row__name">${escapeHtml(item.name || '—')}</span>
-          <span class="asset-row__container">${escapeHtml(item.container || '—')}</span>
-          <span class="asset-row__type">${escapeHtml(item.type || '')}</span>
-          <span class="asset-row__source">${escapeHtml(item.source || '')}</span>
-          <span class="asset-row__pathid">${escapeHtml(pathId)}</span>
+    const head = `<div class="asset-row asset-row--head">
+        <span class="asset-check"><input type="checkbox" id="assetSelectAll" title="全选本页"></span>
+        <span>名称</span><span>容器</span><span>类型</span><span>来源</span><span>PathID</span>
+      </div>`;
+
+    const rows = state.assetRows
+      .map((row, index) => {
+        const selected = state.assetSelected.has(row.key);
+        return `<div class="asset-row ${selected ? 'is-selected' : ''}" data-index="${index}" title="${escapeHtml(row.sourcePath)}">
+          <span class="asset-check"><input type="checkbox" ${selected ? 'checked' : ''} tabindex="-1"></span>
+          <span class="asset-row__name">${escapeHtml(row.name || '—')}</span>
+          <span class="asset-row__container">${escapeHtml(row.container || '—')}</span>
+          <span class="asset-row__type">${escapeHtml(row.type)}</span>
+          <span class="asset-row__source">${escapeHtml(row.source)}</span>
+          <span class="asset-row__pathid">${escapeHtml(row.pathId)}</span>
         </div>`;
       })
       .join('');
 
     list.innerHTML = head + rows;
+    updateAssetSelectionUi();
     APP.pushLog(`资源查询：匹配 ${fmt(response.total)} 条，显示 ${fmt(items.length)} 条（${response.elapsedMs} ms）`);
   }
 
-  function exportAssetFilter() {
-    const name = ($('#assetName')?.value || '').trim();
-    const container = ($('#assetContainer')?.value || '').trim();
-    const source = ($('#assetSource')?.value || '').trim();
-    const type = $('#assetType')?.value || 'all';
+  /// <summary>Stable per-entry identity: the same name can live in several bundles.</summary>
+  function assetKey(item) {
+    return `${item.type}\u0000${item.pathId}\u0000${item.source}\u0000${item.name}`;
+  }
 
-    if (source) {
+  function toggleAssetSelection(index, additive) {
+    const row = state.assetRows[index];
+    if (!row) {
+      return;
+    }
+
+    if (additive && state.assetAnchor >= 0 && state.assetAnchor !== index) {
+      // Shift+click: select the whole range between the anchor and the clicked row.
+      const from = Math.min(state.assetAnchor, index);
+      const to = Math.max(state.assetAnchor, index);
+      for (let cursor = from; cursor <= to; cursor += 1) {
+        const entry = state.assetRows[cursor];
+        if (entry) {
+          state.assetSelected.set(entry.key, { name: entry.name, type: entry.type });
+        }
+      }
+    } else if (state.assetSelected.has(row.key)) {
+      state.assetSelected.delete(row.key);
+    } else {
+      state.assetSelected.set(row.key, { name: row.name, type: row.type });
+    }
+
+    state.assetAnchor = index;
+    paintAssetSelection();
+  }
+
+  function setPageSelection(selected) {
+    for (const row of state.assetRows) {
+      if (selected) {
+        state.assetSelected.set(row.key, { name: row.name, type: row.type });
+      } else {
+        state.assetSelected.delete(row.key);
+      }
+    }
+
+    state.assetAnchor = -1;
+    paintAssetSelection();
+  }
+
+  function clearAssetSelection() {
+    state.assetSelected.clear();
+    state.assetAnchor = -1;
+    paintAssetSelection();
+  }
+
+  /// <summary>Repaints checkboxes/rows without rebuilding the table (cheap for 300 rows).</summary>
+  function paintAssetSelection() {
+    document.querySelectorAll('#assetList .asset-row[data-index]').forEach((element) => {
+      const row = state.assetRows[Number(element.dataset.index)];
+      if (!row) {
+        return;
+      }
+
+      const selected = state.assetSelected.has(row.key);
+      element.classList.toggle('is-selected', selected);
+      const box = element.querySelector('input[type="checkbox"]');
+      if (box) {
+        box.checked = selected;
+      }
+    });
+
+    updateAssetSelectionUi();
+  }
+
+  function updateAssetSelectionUi() {
+    const selected = state.assetSelected.size;
+    const count = $('#assetSelectedCount');
+    if (count) {
+      count.textContent = fmt(selected);
+    }
+
+    const bar = $('#assetBar');
+    if (bar) {
+      bar.classList.toggle('has-selection', selected > 0);
+    }
+
+    const exportButton = $('#assetExportSelected');
+    if (exportButton) {
+      exportButton.disabled = selected === 0 || state.taskRunning;
+      exportButton.textContent = selected > 0 ? `导出所选 PNG（${fmt(selected)}）` : '导出所选 PNG';
+    }
+
+    const clearButton = $('#assetClearSelection');
+    if (clearButton) {
+      clearButton.disabled = selected === 0;
+    }
+
+    const selectAll = $('#assetSelectAll');
+    if (selectAll) {
+      const pageSelected = state.assetRows.filter((row) => state.assetSelected.has(row.key)).length;
+      selectAll.checked = pageSelected > 0 && pageSelected === state.assetRows.length;
+      selectAll.indeterminate = pageSelected > 0 && pageSelected < state.assetRows.length;
+    }
+
+    syncAssetPreview();
+  }
+
+  /// <summary>右侧详情面板在资源浏览里当「购物车」用：列出勾中的名称与导出入口。</summary>
+  function syncAssetPreview({ reset = false } = {}) {
+    if (document.querySelector('.tab.is-active')?.dataset.tab !== 'assets') {
+      return;
+    }
+
+    if (state.assetSelected.size === 0) {
+      if (reset || APP.state.preview?.kind === 'assets') {
+        APP.state.preview = null;
+        APP.renderInspector();
+      }
+      return;
+    }
+
+    APP.state.preview = {
+      kind: 'assets',
+      count: state.assetSelected.size,
+      names: [...new Set([...state.assetSelected.values()].map((entry) => entry.name))].slice(0, 200),
+      limit: EXPORT_NAME_LIMIT,
+    };
+    APP.renderInspector();
+  }
+
+  /// <summary>Selected rows → one CLI run (`--names` regex, names deduped).</summary>
+  function exportSelectedAssets() {
+    const rows = [...state.assetSelected.entries()];
+    const names = [...new Set(rows.map(([, entry]) => entry.name).filter(Boolean))];
+    if (names.length === 0) {
+      APP.toast('还没有勾选资源');
+      return;
+    }
+
+    if (names.length > EXPORT_NAME_LIMIT) {
+      APP.toast(`一次最多导出 ${EXPORT_NAME_LIMIT} 个名称（当前 ${names.length} 个），请分批导出`);
+      return;
+    }
+
+    const types = [...new Set(rows.map(([, entry]) => entry.type).filter(Boolean))];
+    state.pendingExport = { count: names.length, fromSelection: true };
+    runTask('images', {
+      types: types.length > 0 ? types : undefined,
+      names: [`^(?:${names.map(escapeRegex).join('|')})$`],
+    });
+    APP.pushLog(`导出所选：${fmt(names.length)} 个名称（${fmt(rows.length)} 行，类型 ${types.join(' / ') || 'Sprite / Texture2D'}）`);
+  }
+
+  /// <summary>Current filters → CLI run, for sets too big to tick by hand.</summary>
+  function exportMatchingAssets() {
+    const filters = assetFilters();
+    const name = filters.name.trim();
+    const container = filters.container.trim();
+
+    if (filters.source.trim()) {
       APP.toast('来源过滤暂不支持导出，请用「名称」或「容器」');
       return;
     }
 
     if (!name && !container) {
-      APP.toast('先输入名称或容器，再导出过滤结果');
+      APP.toast('先加一个名称或容器条件，避免把整张地图都导出去');
       return;
     }
 
-    const payload = { types: type === 'all' ? ['Sprite', 'Texture2D'] : [type] };
+    const payload = {
+      types: filters.types.length > 0 ? filters.types : ['Sprite', 'Texture2D'],
+    };
 
     if (name) {
       payload.names = [escapeRegex(name)];
@@ -1181,8 +1407,9 @@
       payload.containers = [escapeRegex(container)];
     }
 
+    state.pendingExport = { count: null, fromSelection: false };
     runTask('images', payload);
-    APP.pushLog(`按过滤条件导出：${[name && `名称=${name}`, container && `容器=${container}`, type !== 'all' && `类型=${type}`].filter(Boolean).join('，')}`);
+    APP.pushLog(`导出全部匹配：${[name && `名称≈${name}`, container && `容器≈${container}`, filters.types.join('/')].filter(Boolean).join('，')}`);
   }
 
   function escapeHtml(value) {
@@ -1226,13 +1453,23 @@
     // 图库延迟加载：切到图库标签时才扫描，避免启动/换输出目录时被几万张图卡住。
     const tabHit = event.target.closest('.tab[data-tab]');
     if (tabHit && tabHit.dataset.tab === 'images') {
-      setTimeout(ensureImagesLoaded, 0);
+      setTimeout(() => {
+        ensureImagesLoaded();
+        if (APP.state.preview?.kind === 'assets') {
+          APP.state.preview = null;
+          APP.renderInspector();
+        }
+      }, 0);
     }
 
     // 资源浏览同样延迟：第一次打开、索引重建后、换游戏/换目录后都重新查一次。
-    if (tabHit && tabHit.dataset.tab === 'assets' &&
-        (state.assetsDirty || !state.assetsLoaded)) {
-      setTimeout(refreshAssets, 0);
+    if (tabHit && tabHit.dataset.tab === 'assets') {
+      setTimeout(() => {
+        if (state.assetsDirty || !state.assetsLoaded) {
+          refreshAssets();
+        }
+        syncAssetPreview({ reset: true });
+      }, 0);
     }
 
     if (hit('#openSettings')) {
@@ -1274,13 +1511,60 @@
 
     if (hit('#assetSearch')) {
       stop(event);
-      searchAssets();
+      searchAssets(assetFilters());
       return;
     }
 
-    if (hit('#assetExport')) {
+    if (hit('#assetReset')) {
       stop(event);
-      exportAssetFilter();
+      ['#assetName', '#assetContainer', '#assetSource'].forEach((selector) => {
+        const input = $(selector);
+        if (input) {
+          input.value = '';
+        }
+      });
+      const type = $('#assetType');
+      if (type) {
+        type.value = 'image';
+      }
+      searchAssets(assetFilters());
+      return;
+    }
+
+    if (hit('#assetExportSelected')) {
+      stop(event);
+      exportSelectedAssets();
+      return;
+    }
+
+    if (hit('#assetExportAll')) {
+      stop(event);
+      exportMatchingAssets();
+      return;
+    }
+
+    if (hit('#assetClearSelection')) {
+      stop(event);
+      clearAssetSelection();
+      return;
+    }
+
+    // 整行都能点：勾选比对准小方块容易得多；Shift 连选一段。
+    if (event.target.closest('#assetList .asset-row--head')) {
+      stop(event);
+      const allSelected = state.assetRows.length > 0 &&
+        state.assetRows.every((row) => state.assetSelected.has(row.key));
+      setPageSelection(!allSelected);
+      // 被 preventDefault 的 checkbox 会在事件结束后回滚到点击前的状态，
+      // 所以下一拍再写一次 checked / indeterminate。
+      setTimeout(updateAssetSelectionUi, 0);
+      return;
+    }
+
+    const assetRow = event.target.closest('#assetList .asset-row[data-index]');
+    if (assetRow) {
+      stop(event);
+      toggleAssetSelection(Number(assetRow.dataset.index), event.shiftKey);
       return;
     }
 
@@ -1406,41 +1690,10 @@
           runTask('images', { containers: ['spriteoutput/ui'] });
         }
       } else {
-        APP.switchTab('images');
-        ensureImagesLoaded();
-        APP.toast('在图库里勾选后点「导出 PNG」');
+        APP.switchTab('assets');
+        APP.toast('先在资源浏览里筛出想要的资源，勾选后点「导出所选 PNG」');
+        $('#assetName')?.focus();
       }
-      return;
-    }
-
-    if (hit('#imageExport')) {
-      stop(event);
-
-      const selected = [...APP.state.selectedImages];
-      if (selected.length > 0) {
-        const names = selected
-          .map((id) => state.imageNames.get(id))
-          .filter(Boolean)
-          .map(escapeRegex);
-
-        if (names.length === 0) {
-          APP.toast('选中的图片不在当前列表里，请重新勾选');
-          return;
-        }
-
-        if (names.length > 400) {
-          APP.toast(`一次最多导出 400 张（当前 ${names.length} 张），请先缩小选择`);
-          return;
-        }
-
-        state.pendingExport = { count: names.length };
-        runTask('images', { names: [`^(?:${names.join('|')})$`] });
-        APP.pushLog(`导出所选：${names.length} 张`);
-      } else {
-        state.pendingExport = { count: null };
-        runTask('images', { containers: ['spriteoutput/ui'] });
-      }
-
       return;
     }
 
@@ -1477,6 +1730,9 @@
     event.stopImmediatePropagation();
   }
 
+  // 图库大图翻到本页边界时，由宿主去取相邻页。
+  APP.pageTurn = pageTurn;
+
   // 调试/自动化入口：CDP 探针可以用它触发真实任务与查询。
   window.HOST = {
     runTask,
@@ -1486,6 +1742,11 @@
     diff: () => call('diff.run'),
     searchAssets,
     refreshAssets,
+    exportSelectedAssets,
+    exportMatchingAssets,
+    toggleAssetSelection,
+    clearAssetSelection,
+    setPageSelection,
   };
 
   webview.postMessage({ type: 'hello' });

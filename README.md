@@ -30,11 +30,11 @@ AnimeStudio 打开 Unity 打好的资源包（bundle / CAB），把里面能认�
 
 | 能力 | 说明 | 在哪用 |
 | --- | --- | --- |
-| UI 图库 | 160 px 缩略图（按需生成并缓存）、按容器分类、按名称搜索、每页 120 张、跨页多选 | Host |
-| 一键提取 UI | 按 `spriteoutput/ui` 容器批量导出，或只导勾中的图（单次最多 400 张，自动去重） | Host |
+| UI 图库 | 只负责预览：160 px 缩略图按需生成、按容器分类、按名称搜索、每页 120 张；大图查看器支持 ← → 翻页、滚轮缩放、1:1、拖拽平移 | Host |
+| 筛选导出 | 「资源浏览」按名称、容器、来源、类型查索引，整行勾选（Shift 连选、全选本页），再导出所选或全部匹配 | Host |
 | 资源索引 | 建 `AssetMap`（紧凑 v2 / MessagePack），并行扫描，只重扫变化的包 | Host / CLI |
 | 资源浏览 | 按名称、容器、来源、类型直接查索引；可把名称或容器条件交给 CLI 导出 | Host |
-| 快照对比 | 导出后自动和上一份输出比对：新增、消失、尺寸或内容变化的图片 | Host |
+| 快照对比 | 导出后自动和上一份输出比对：新增、消失、尺寸或文件大小变化的图片 | Host |
 | 每游戏独立输出 | 星铁、绝区零各一条输出目录，互不覆盖；文件夹改名后自动跟随 | Host |
 | 经典界面 | 全量加载、类型过滤、12 个导出入口、图片 / 音频 / 模型 / 字体 / 文本预览、Asset Browser 双地图对比 | GUI |
 | 批量与脚本 | 递归导出、按类型 / 名称 / 容器过滤、建图、按图导出、同名去重 | CLI |
@@ -58,7 +58,7 @@ cd AnimeStudio
 pwsh -File build.ps1
 ```
 
-`build.ps1` 会编译 Patcher、CLI、GUI、Host（统一 `net10.0-windows` 单目标），用 Patcher 把 GUI / CLI 的 exe 内嵌路径改到 `bin\`，把产物收进 `dist\`，跑一遍单元测试，并生成两个启动脚本。
+`build.ps1` 会编译 Patcher（`net10.0`）和 CLI / GUI / Host（统一 `net10.0-windows` 单目标），用 Patcher 把 GUI / CLI 的 exe 内嵌路径改到 `bin\`，把产物收进 `dist\`，跑一遍单元测试，并生成两个启动脚本。
 
 ```text
 dist/
@@ -76,7 +76,7 @@ dist/
 
 > 根目录的 exe 按相对路径去 `bin\` 找自己的部件，别单独拷走；Host 也会在上一层目录里找 `AnimeStudio.CLI.exe`。
 
-本仓库没有单独的发布页。`master` 每次推送都会触发 GitHub Actions 的 Build 工作流，成功的话可以从 [Actions](https://github.com/a285292107s/AnimeStudio/actions) 下载它上传的 `AnimeStudio` 产物；否则就按上面的步骤自己编。
+本仓库的工作流没有配置 Release 发布，只提供构建产物：`master` 每次推送都会触发 GitHub Actions 的 Build 工作流，成功的话可以从 [Actions](https://github.com/a285292107s/AnimeStudio/actions) 下载它上传的 `AnimeStudio` 产物；否则就按上面的步骤自己编。
 
 ### 三个入口
 
@@ -91,13 +91,14 @@ dist/
 1. **确认游戏目录。** 首次启动会自动从 miHoYo Launcher 的注册表、Program Files 和各盘常见目录里找星穹铁道、绝区零；找不到就点「更换」手动选。首次向导三步走：游戏目录 → 输出目录 → 建索引。
 2. **给每款游戏指定输出目录。** 设置里 SR 和 ZZZ 各有一条路径，改一款不影响另一款；切换游戏时图库、索引和快照一起切过去。输出文件夹在资源管理器里改名也没关系，Host 会凭目录里的 `.anime-studio.json` 标记找回来。
 3. **重建索引。** 索引写在 `<输出目录>\index\<索引名>.map`（默认 `index\game.map`）。首次几分钟（4 线程），之后只重扫变化的包，通常几秒。索引只记录「哪个资源在哪个 block 里」，不导出文件。
-4. **逛图库。** 「UI 图库」按容器分类、按名称搜索、每页 120 张，缩略图按需生成并缓存在 `.cache\thumbs`。勾选时要的图，跨页选择会记住。
-5. **导出 PNG。** 点「导出 PNG」：勾了图就只导勾中的（单次最多 400 张，自动去重）；没勾就按 `spriteoutput/ui` 容器批量导。导出交给 CLI，按容器路径分组，同名资源不会互相覆盖；进度、ETA 和取消都在侧栏与「日志」里。
-6. **对比变化。** 每次导出结束会自动和上一份快照比对图片的新增、消失和尺寸变化；「设置 → 对比上次快照」可以随时手动重跑。
+4. **筛选要导出的资源。** 「资源浏览」默认按「图像（Sprite + Texture2D）」列出前 300 条，可以按名称、容器、来源再收窄。整行点一下就是勾选，Shift 连选一段，表头是全选本页；右侧「详情」面板会变成购物车，列出勾中的名称。
+5. **导出 PNG。** 点「导出所选 PNG」（单次最多 400 个名称，自动去重），或者用「导出全部匹配」把当前过滤条件直接交给 CLI。导出按容器路径分组，同名资源不会互相覆盖；进度、ETA 和取消都在侧栏与「日志」里。
+6. **在图库里看结果。** 「UI 图库」只负责预览：按容器分类、按名称搜索、每页 120 张，缩略图缓存在 `.cache\thumbs`。点任意一张进大图：← → 连着翻（翻到页边界会自动取下一页）、滚轮缩放、双击 1:1、拖拽平移，Esc 退出。缩略图有 S / M / L 三档。
+7. **对比变化。** 每次导出结束会自动和上一份快照比对图片的新增、消失和尺寸变化；「设置 → 对比上次快照」可以随时手动重跑。
 
 几个补充：
 
-- 「资源浏览」标签直接查索引：按名称、容器、来源、类型过滤，默认显示前 300 条。要把结果落成文件，填好名称或容器再点「导出过滤结果」（来源过滤暂不支持导出）。
+- 「导出全部匹配」需要至少一个名称或容器条件（来源过滤暂不支持导出），避免把整张地图都导出去。
 - 设置保存在 `%LOCALAPPDATA%\AnimeStudio\host.settings.json`，崩溃日志是同目录的 `host-crash.log`。
 - 图库只扫输出目录里的 PNG。Host 不再有文本页，文本表和配置表的专用提取已经从本 fork 移除；通用 `TextAsset` 仍然可以当普通资产导出。
 - Host 目前只自动识别星穹铁道和绝区零；其它游戏用 GUI / CLI 的 `--game` 指定。
@@ -108,7 +109,7 @@ dist/
 AnimeStudio.CLI.exe <input_path> <output_path> --game <GameType>
 ```
 
-输入可以是单个文件，也可以是目录（递归扫描）。游戏名是 `GameType` 枚举名，比如 `SR`、`GI`、`ZZZ`。三个定位参数都必填。
+输入可以是单个文件，也可以是目录（递归扫描）。游戏名是 `GameType` 枚举名，比如 `SR`、`GI`、`ZZZ`。两个路径参数和 `--game` 都必填，其余参数见下表。
 
 ```powershell
 # 导出星铁 UI 目录下的 Sprite 和 Texture2D（--types 用空格分隔，不是逗号）
@@ -132,7 +133,7 @@ AnimeStudio.CLI.exe "D:\Games\StarRail\StarRail_Data\StreamingAssets" "D:\out\sr
 | `--dedupe_names` | 开关 | 关 | 同名资源只导第一份 |
 | `--export_type` | `Convert` / `Raw` / `Dump` / `JSON` | `Convert` | 转换导出 / 原始字节 / 字段文本 / JSON |
 | `--group_assets` | `ByType` / `ByContainer` / `BySource` / `None` | `ByType` | 输出目录布局 |
-| `--map_op` | `None` / `AssetMap` / `CABMap` / `Both` / `All`，可叠加 `Load` | `None` | 建图；带 `Load` 表示读图并导出 |
+| `--map_op` | `None` / `AssetMap` / `CABMap` / `Both` / `All`，可叠加 `Load` | `None` | 建图；`AssetMap,Load` 表示读图并按图导出 |
 | `--map_type` | `MessagePack` / `XML` / `JSON` | `XML` | 建图格式；Host 用 `MessagePack` |
 | `--map_format` | `Compact` / `MessagePack` | `Compact` | 紧凑 v2，还是旧版 MessagePack 布局 |
 | `--map_name` | 名称或路径 | `assets_map` | 地图文件名 / 读取路径 |
@@ -159,7 +160,7 @@ AnimeStudio.CLI.exe "D:\Games\StarRail\StarRail_Data\StreamingAssets" "D:\out\sr
 ## 游戏支持
 
 - **Host**：自动识别并索引星穹铁道（SR）和绝区零（ZZZ）。
-- **GUI / CLI**：内置几十个游戏和版本条目，包括 Hoyo 系（原神、星铁、绝区零、崩坏3 等，含各 CBT 版本）、24 条 UnityCN 密钥，以及一批常见的加密游戏和普通 Unity 游戏。完整的枚举名见 [`GameManager.LoadGames`](AnimeStudio/GameManager.cs)，GUI 的 Select Game 也列出了全部条目。
+- **GUI / CLI**：内置七十多个游戏和版本条目（含各 CBT 版本），覆盖 Hoyo 系（原神、星铁、绝区零、崩坏3 等）、`CNKeys.json` 里的 24 条 UnityCN 密钥，以及一批常见的加密游戏和普通 Unity 游戏。完整的枚举名见 [`GameManager.LoadGames`](AnimeStudio/GameManager.cs)，GUI 的 Select Game 也列出了全部条目。
 
 选游戏是唯一一个「选错就全盘皆错」的步骤：不同游戏用不同的锁和钥匙，拿错钥匙轻则列表空白，重则导出一堆乱码或打不开的文件。先确定厂商，再确定版本。
 

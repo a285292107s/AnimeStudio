@@ -12,15 +12,18 @@
 
   const state = {
     data: null,
-    tab: 'images',
+    tab: 'assets',
     gameId: 'SR',
     imageQuery: '',
     imageFilter: 'all',
     images: [],
-    selectedImages: new Set(),
     preview: null,
     panelHidden: false,
     indexing: false,
+    gallerySize: 'md',
+    galleryLoaded: false,
+    // 大图预览：items 是打开时那一页的图片，index 是当前位置，scale 相对「适应窗口」。
+    viewer: null,
   };
 
   /* ---------- 启动 ---------- */
@@ -40,6 +43,16 @@
     }
 
     state.images = state.data.images.slice();
+    state.galleryLoaded = true;
+    state.gallerySize = readGallerySize();
+    applyGallerySize();
+
+    // 资源浏览只在 WebView2 宿主里有真实数据；浏览器预览退回图库。
+    if (!window.chrome?.webview) {
+      const assetsTab = $('.tab[data-tab="assets"]');
+      if (assetsTab) assetsTab.hidden = true;
+      switchTab('images');
+    }
 
     renderGames();
     renderRail();
@@ -102,7 +115,7 @@
     const statItems = [
       ['资产总数', stats.assets],
       ['Block 数', stats.blocks],
-      ['UI 精灵', stats.uiSprites],
+      ['图库图片', stats.uiSprites],
       ['Sprite 总数', stats.sprites],
       ['Texture2D', stats.textures],
     ];
@@ -116,16 +129,16 @@
       .join('');
 
     $('#presets').innerHTML = [
-      { name: 'UI 图库 · spriteoutput/ui', count: stats.uiSprites, action: 'images' },
-      { name: '关键：只选我勾中的', count: null, action: 'selection' },
+      { name: 'UI 图库 · spriteoutput/ui', count: stats.uiSprites, action: 'images', hint: '直接提取' },
+      { name: '按筛选结果导出', count: null, action: 'assets', hint: '资源浏览里勾选' },
     ]
       .map((preset) => `
         <li class="preset">
           <div class="preset__main">
             <span class="preset__name">${preset.name}</span>
-            <span class="preset__count">${preset.count === null ? '手动选择' : fmt(preset.count) + ' 条'}</span>
+            <span class="preset__count">${preset.count === null ? preset.hint : fmt(preset.count) + ' 条'}</span>
           </div>
-          <button class="btn btn--xs" data-preset="${preset.action}">提取</button>
+          <button class="btn btn--xs" data-preset="${preset.action}">${preset.action === 'images' ? '提取' : '去筛选'}</button>
         </li>`)
       .join('');
   }
@@ -135,11 +148,13 @@
       const button = event.target.closest('[data-preset]');
       if (!button) return;
       const action = button.dataset.preset;
-      if (action === 'selection') {
-        toast('切到 UI 图库，勾选你要的图片');
-        switchTab('images');
+      if (action === 'assets') {
+        switchTab('assets');
+        toast('筛出想要的资源，勾选后点「导出所选 PNG」');
+        $('#assetName')?.focus();
         return;
       }
+
       switchTab('images');
       simulateExport(state.images.length, 'images');
     });
@@ -148,7 +163,7 @@
   function renderTabs() {
     const imageCount = $('#tabImageCount');
     if (imageCount) {
-      imageCount.textContent = fmt(state.data.stats.uiSprites);
+      imageCount.textContent = state.galleryLoaded ? fmt(state.data.stats.uiSprites) : '—';
     }
   }
 
@@ -170,32 +185,35 @@
     renderChips();
 
     if (!rows.length) {
-      grid.innerHTML = '<div class="empty"><b>没有匹配的图片</b><span>换个关键词或筛选条件</span></div>';
+      const noneAtAll = state.images.length === 0;
+      grid.innerHTML = noneAtAll
+        ? '<div class="empty"><b>还没有导出过图片</b><span>在「资源浏览」里筛资源、导出 PNG，这里只负责预览结果</span></div>'
+        : '<div class="empty"><b>没有匹配的图片</b><span>换个关键词或筛选条件</span></div>';
       $('#imageCount').textContent = '0 张';
       return;
     }
 
     grid.innerHTML = rows
-      .map((image) => {
-        const selected = state.selectedImages.has(image.id);
-        return `
-          <article class="card ${selected ? 'is-selected' : ''}" data-id="${image.id}" tabindex="0">
+      .map((image, index) => `
+          <article class="card" data-index="${index}" data-id="${escapeAttr(image.id)}" tabindex="0" role="button"
+                   aria-label="预览 ${escapeAttr(image.name)}">
             <div class="card__thumb">
-              <img src="${image.thumb || image.file}" alt="${escapeAttr(image.name)}" loading="lazy">
+              <img src="${image.thumb || image.file}" alt="" loading="lazy" decoding="async">
             </div>
             <div class="card__meta">
               <span class="card__name" title="${escapeAttr(image.name)}">${escapeHtml(image.name)}</span>
               <span class="card__dim">${image.w}×${image.h}</span>
             </div>
-            <span class="card__check" aria-hidden="true">
-              <svg viewBox="0 0 12 12"><path d="M2 6.4L4.6 9 10 3.4"/></svg>
-            </span>
-          </article>`;
-      })
+          </article>`)
       .join('');
 
-    const selectedCount = state.selectedImages.size;
-    $('#imageCount').textContent = `${fmt(rows.length)} 张` + (selectedCount ? ` / 已选 ${selectedCount}` : '');
+    $('#imageCount').textContent = `${fmt(rows.length)} 张`;
+
+    // 大图打开时换页/换筛选：保持预览对象和当前页对应。
+    if (state.viewer) {
+      state.viewer.items = rows;
+      state.viewer.index = Math.min(state.viewer.index, rows.length - 1);
+    }
   }
 
   function renderChips() {
@@ -236,7 +254,7 @@
     if (!preview) {
       body.innerHTML = `
         <div class="panel__empty">
-          选中左侧任意一条<br>查看详情与导出选项
+          在「资源浏览」里勾选要导出的资源；<br>在「UI 图库」里点图片看大图
         </div>
         <div class="panel__section">
           <h3 class="label">索引信息 <span>INDEX</span></h3>
@@ -249,19 +267,36 @@
 
     if (preview.kind === 'image') {
       const image = preview.item;
+      const position = state.viewer ? `${state.viewer.index + 1} / ${state.viewer.items.length}` : '';
       body.innerHTML = `
         <div class="insp__thumb"><img src="${image.file}" alt="${escapeAttr(image.name)}"></div>
         <h3 class="insp__title">${escapeHtml(image.name)}</h3>
-        <p class="insp__sub">${image.kind || 'Sprite'} · ${image.w} × ${image.h} px${image.kb ? ' · ' + image.kb + ' KB' : ''}</p>
+        <p class="insp__sub">${image.kind || 'Sprite'} · ${image.w} × ${image.h} px${image.kb ? ' · ' + image.kb + ' KB' : ''}${position ? ' · ' + position : ''}</p>
         <dl class="meta">
           ${metaRow('容器', image.container || '—')}
           ${metaRow('来源 block', image.block ? image.block.split('/').pop() : '—')}
           ${metaRow('完整路径', (image.container ? image.container + '/' : '') + image.name)}
         </dl>
         <div class="insp__actions">
-          <button class="btn btn--xs" data-act="select-image">${state.selectedImages.has(image.id) ? '取消勾选' : '勾选此图'}</button>
-          <button class="btn btn--xs" data-act="export-image">导出 PNG</button>
+          <button class="btn btn--xs" data-act="view-open">打开大图</button>
+          <button class="btn btn--xs btn--ghost" data-act="view-prev">上一张</button>
+          <button class="btn btn--xs btn--ghost" data-act="view-next">下一张</button>
           <button class="btn btn--xs btn--ghost" data-act="copy-path">复制路径</button>
+        </div>`;
+    }
+
+    if (preview.kind === 'assets') {
+      // 资源浏览的「购物车」：勾中的行按名称去重后再导出。
+      const names = preview.names || [];
+      body.innerHTML = `
+        <h3 class="insp__title">已选 ${fmt(preview.count || names.length)} 项</h3>
+        <p class="insp__sub">导出时按名称去重，单次最多 ${preview.limit || 400} 个</p>
+        <ul class="insp__list">
+          ${names.map((name) => `<li title="${escapeAttr(name)}">${escapeHtml(name)}</li>`).join('')}
+        </ul>
+        <div class="insp__actions">
+          <button class="btn btn--xs" data-act="assets-export">导出所选 PNG</button>
+          <button class="btn btn--xs btn--ghost" data-act="assets-clear">清空选择</button>
         </div>`;
     }
 
@@ -272,14 +307,23 @@
       const image = state.preview?.item;
 
       switch (action) {
-        case 'select-image':
-          toggleImage(image.id);
+        case 'view-open':
+          openViewerAtId(image.id);
           break;
-        case 'export-image':
-          simulateExport(1, 'images');
+        case 'view-prev':
+          stepViewer(-1);
+          break;
+        case 'view-next':
+          stepViewer(1);
           break;
         case 'copy-path':
-          copy(`${image.container}/${image.name}`, '路径已复制');
+          copy(`${image.container ? image.container + '/' : ''}${image.name}`, '路径已复制');
+          break;
+        case 'assets-export':
+          window.HOST?.exportSelectedAssets?.();
+          break;
+        case 'assets-clear':
+          window.HOST?.clearAssetSelection?.();
           break;
         default:
           break;
@@ -291,18 +335,178 @@
     return `<div class="meta__row"><dt>${label}</dt><dd>${escapeHtml(String(value))}</dd></div>`;
   }
 
-  /* ---------- 选中 ---------- */
+  /* ---------- 大图预览 ---------- */
 
-  function toggleImage(id) {
-    if (state.selectedImages.has(id)) {
-      state.selectedImages.delete(id);
-    } else {
-      state.selectedImages.add(id);
+  function openViewerAt(index) {
+    const rows = currentImages();
+    if (!rows.length) {
+      return;
     }
 
-    state.preview = { kind: 'image', item: state.images.find((image) => image.id === id) };
-    renderImageGrid();
+    const clamped = Math.max(0, Math.min(rows.length - 1, Number.isFinite(index) ? index : 0));
+    state.viewer = { items: rows, index: clamped, scale: 1, x: 0, y: 0 };
+    $('#viewer').hidden = false;
+    document.body.classList.add('is-viewing');
+    paintViewer();
+  }
+
+  function openViewerAtId(id) {
+    const rows = currentImages();
+    const index = rows.findIndex((image) => image.id === id);
+    openViewerAt(index >= 0 ? index : 0);
+  }
+
+  function closeViewer() {
+    if (!state.viewer) {
+      return;
+    }
+
+    state.viewer = null;
+    $('#viewer').hidden = true;
+    $('#viewerImage').src = '';
+    document.body.classList.remove('is-viewing');
+  }
+
+  function paintViewer() {
+    const viewer = state.viewer;
+    if (!viewer) {
+      return;
+    }
+
+    const image = viewer.items[viewer.index];
+    if (!image) {
+      return;
+    }
+
+    state.preview = { kind: 'image', item: image };
     renderInspector();
+
+    $('#viewerTitle').textContent = image.name;
+    $('#viewerMeta').textContent = [
+      image.kind || 'Sprite',
+      image.w && image.h ? `${image.w} × ${image.h}` : '',
+      image.kb ? `${image.kb} KB` : '',
+      image.container || '',
+    ].filter(Boolean).join(' · ');
+    $('#viewerIndex').textContent = `${viewer.index + 1} / ${viewer.items.length}`;
+
+    const img = $('#viewerImage');
+    viewer.scale = 1;
+    viewer.x = 0;
+    viewer.y = 0;
+    img.src = image.file;
+    img.alt = image.name;
+    applyViewerTransform();
+  }
+
+  function applyViewerTransform() {
+    const viewer = state.viewer;
+    const img = $('#viewerImage');
+    if (!viewer || !img) {
+      return;
+    }
+
+    img.style.transform = `translate(${viewer.x}px, ${viewer.y}px) scale(${viewer.scale})`;
+    img.classList.toggle('is-zoomed', viewer.scale > 1.001);
+    $('#viewerZoomReset').textContent = viewer.scale > 1.001
+      ? `${Math.round(viewer.scale * 100)}%`
+      : '适应';
+  }
+
+  function zoomViewerBy(factor) {
+    const viewer = state.viewer;
+    if (!viewer) {
+      return;
+    }
+
+    const next = Math.max(1, Math.min(16, viewer.scale * factor));
+    if (Math.abs(next - viewer.scale) < 0.001) {
+      return;
+    }
+
+    viewer.scale = next;
+    if (next === 1) {
+      viewer.x = 0;
+      viewer.y = 0;
+    }
+    applyViewerTransform();
+  }
+
+  // 1:1：把图片放到原始像素大小（相对于当前「适应」比例换算）。
+  function zoomViewerActual() {
+    const viewer = state.viewer;
+    const img = $('#viewerImage');
+    if (!viewer || !img || !img.naturalWidth) {
+      return;
+    }
+
+    const base = img.getBoundingClientRect().width / viewer.scale;
+    if (base <= 0) {
+      return;
+    }
+
+    viewer.scale = Math.max(1, Math.min(16, img.naturalWidth / base));
+    viewer.x = 0;
+    viewer.y = 0;
+    applyViewerTransform();
+  }
+
+  async function stepViewer(delta) {
+    const viewer = state.viewer;
+    if (!viewer) {
+      return;
+    }
+
+    const next = viewer.index + delta;
+    if (next >= 0 && next < viewer.items.length) {
+      viewer.index = next;
+      paintViewer();
+      return;
+    }
+
+    // 页码边界交给宿主：它取上一页/下一页，取到后再打开对应端点的图片。
+    if (typeof window.APP?.pageTurn === 'function') {
+      const moved = await window.APP.pageTurn(delta);
+      if (moved) {
+        return;
+      }
+    }
+
+    toast(delta > 0 ? '已经是最后一张了' : '已经是第一张了');
+  }
+
+  /* ---------- 图库缩略图密度 ---------- */
+
+  function readGallerySize() {
+    try {
+      const saved = localStorage.getItem('anime.gallery.size');
+      return ['sm', 'md', 'lg'].includes(saved) ? saved : 'md';
+    } catch {
+      return 'md';
+    }
+  }
+
+  function applyGallerySize() {
+    const grid = $('#imageGrid');
+    if (!grid) {
+      return;
+    }
+
+    grid.classList.toggle('grid--sm', state.gallerySize === 'sm');
+    grid.classList.toggle('grid--lg', state.gallerySize === 'lg');
+    $$('#imageDensity [data-size]').forEach((button) => {
+      button.classList.toggle('is-active', button.dataset.size === state.gallerySize);
+    });
+  }
+
+  function setGallerySize(size) {
+    state.gallerySize = size;
+    applyGallerySize();
+    try {
+      localStorage.setItem('anime.gallery.size', size);
+    } catch {
+      /* 隐私模式下写不进去，忽略 */
+    }
   }
 
   /* ---------- 交互 ---------- */
@@ -327,8 +531,32 @@
     $('#imageGrid').addEventListener('click', (event) => {
       const card = event.target.closest('.card');
       if (!card) return;
-      toggleImage(card.dataset.id);
+      openViewerAt(Number(card.dataset.index));
     });
+
+    $('#imageDensity').addEventListener('click', (event) => {
+      const button = event.target.closest('[data-size]');
+      if (!button) return;
+      setGallerySize(button.dataset.size);
+    });
+
+    $('#viewerClose').addEventListener('click', closeViewer);
+    $('#viewerPrev').addEventListener('click', () => stepViewer(-1));
+    $('#viewerNext').addEventListener('click', () => stepViewer(1));
+    $('#viewerZoomIn').addEventListener('click', () => zoomViewerBy(1.25));
+    $('#viewerZoomOut').addEventListener('click', () => zoomViewerBy(1 / 1.25));
+    $('#viewerZoomReset').addEventListener('click', () => {
+      if (state.viewer && state.viewer.scale > 1.001) {
+        state.viewer.scale = 1;
+        state.viewer.x = 0;
+        state.viewer.y = 0;
+        applyViewerTransform();
+      } else {
+        zoomViewerActual();
+      }
+    });
+
+    bindViewerGestures();
 
     $('#buildIndex').addEventListener('click', simulateIndex);
     $('#pickPath').addEventListener('click', () => toast('原型阶段：目录选择接入宿主后可用'));
@@ -341,20 +569,6 @@
       document.querySelector('.app').classList.add('is-panel-hidden');
     });
 
-    $('#imageExport').addEventListener('click', () => {
-      const count = state.selectedImages.size;
-      if (!count) {
-        toast('还没有勾选图片：点卡片可以勾选');
-        return;
-      }
-      simulateExport(count, 'images');
-    });
-    $('#imageClear').addEventListener('click', () => {
-      state.selectedImages.clear();
-      renderImageGrid();
-      toast('已清空选择');
-    });
-
     $('#logClear').addEventListener('click', () => { $('#logList').innerHTML = ''; });
 
     $('#groupMode').addEventListener('change', (event) => {
@@ -362,9 +576,20 @@
     });
 
     document.addEventListener('keydown', (event) => {
+      // 大图打开时键盘交给预览：翻页、缩放、关闭。
+      if (state.viewer) {
+        if (event.key === 'Escape') { event.preventDefault(); closeViewer(); return; }
+        if (event.key === 'ArrowLeft') { event.preventDefault(); stepViewer(-1); return; }
+        if (event.key === 'ArrowRight') { event.preventDefault(); stepViewer(1); return; }
+        if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomViewerBy(1.25); return; }
+        if (event.key === '-') { event.preventDefault(); zoomViewerBy(1 / 1.25); return; }
+        if (event.key === '0') { event.preventDefault(); zoomViewerActual(); return; }
+      }
+
       if (event.key === '/' && document.activeElement.tagName !== 'INPUT') {
         event.preventDefault();
-        $('#imageSearch').focus();
+        if (state.tab === 'images') $('#imageSearch').focus();
+        else $('#assetName')?.focus();
       }
       if (event.key === 'Escape') {
         if (document.activeElement.tagName === 'INPUT') {
@@ -376,11 +601,57 @@
           renderInspector();
         }
       }
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        event.preventDefault();
-        $('#imageExport').click();
+    });
+  }
+
+  function bindViewerGestures() {
+    const stage = $('#viewerStage');
+    if (!stage) {
+      return;
+    }
+
+    let drag = null;
+
+    stage.addEventListener('wheel', (event) => {
+      if (!state.viewer) return;
+      event.preventDefault();
+      zoomViewerBy(event.deltaY < 0 ? 1.15 : 1 / 1.15);
+    }, { passive: false });
+
+    stage.addEventListener('dblclick', () => {
+      if (state.viewer?.scale > 1.001) {
+        state.viewer.scale = 1;
+        state.viewer.x = 0;
+        state.viewer.y = 0;
+        applyViewerTransform();
+      } else {
+        zoomViewerActual();
       }
     });
+
+    stage.addEventListener('pointerdown', (event) => {
+      if (!state.viewer || state.viewer.scale <= 1.001) return;
+      drag = { x: event.clientX, y: event.clientY, ox: state.viewer.x, oy: state.viewer.y, id: event.pointerId };
+      stage.setPointerCapture(event.pointerId);
+      stage.classList.add('is-panning');
+    });
+
+    stage.addEventListener('pointermove', (event) => {
+      if (!drag || !state.viewer) return;
+      state.viewer.x = drag.ox + (event.clientX - drag.x);
+      state.viewer.y = drag.oy + (event.clientY - drag.y);
+      applyViewerTransform();
+    });
+
+    const stopDrag = () => {
+      if (!drag) return;
+      drag = null;
+      stage.classList.remove('is-panning');
+    };
+
+    stage.addEventListener('pointerup', stopDrag);
+    stage.addEventListener('pointercancel', stopDrag);
+    stage.addEventListener('pointerleave', stopDrag);
   }
 
   function switchTab(tab) {
@@ -556,6 +827,12 @@
     toast,
     pushLog,
     setStatus,
+    // 图库预览：宿主在翻页边界上接管（pageTurn），其余全是本地操作。
+    openViewerAt,
+    openViewerAtId,
+    closeViewer,
+    stepViewer,
+    pageTurn: null,
   };
 
   boot();
