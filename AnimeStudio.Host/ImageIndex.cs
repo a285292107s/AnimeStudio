@@ -41,49 +41,41 @@ internal static class ImageIndex
             return (items, []);
         }
 
-        foreach (string path in Directory.EnumerateFiles(gameRoot, "*.png", SearchOption.AllDirectories))
+        string[] paths;
+        try
         {
-            try
+            paths = Directory.GetFiles(gameRoot, "*.png", SearchOption.AllDirectories);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return (items, []);
+        }
+
+        // File headers are tiny but a big export can have tens of thousands of PNGs; reading
+        // them in parallel keeps a fresh folder scan well under the UI-freezing threshold.
+        var found = new ImageItem?[paths.Length];
+        int count = 0;
+        var options = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 8),
+        };
+
+        Parallel.For(0, paths.Length, options, index =>
+        {
+            ImageItem? item = TryReadItem(gameRoot, paths[index], urlPrefix);
+            if (item is null)
             {
-                string relative = Path.GetRelativePath(gameRoot, path).Replace('\\', '/');
-
-                // Thumbnails live under <root>/.cache/thumbs and must not show up as export results.
-                if (relative.StartsWith(".cache/", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                string thumbRelative = $".cache/thumbs/{relative}";
-
-                (int width, int height) = ReadPngSize(path);
-                string name = Path.GetFileNameWithoutExtension(path);
-                long bytes;
-
-                try
-                {
-                    bytes = new FileInfo(path).Length;
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-                {
-                    // The CLI may still be deleting a partial export while we scan.
-                    continue;
-                }
-
-                items.Add(new ImageItem(
-                    name,
-                    relative,
-                    CategoryOf(relative, name),
-                    urlPrefix + Escape(relative),
-                    urlPrefix + Escape(thumbRelative),
-                    thumbRelative,
-                    width,
-                    height,
-                    bytes));
+                return;
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
-            {
-                // Skip unreadable files instead of failing the whole gallery.
-            }
+
+            int slot = Interlocked.Increment(ref count) - 1;
+            found[slot] = item;
+        });
+
+        items = new List<ImageItem>(count);
+        for (int i = 0; i < count; i++)
+        {
+            items.Add(found[i]!);
         }
 
         items.Sort(static (left, right) => string.Compare(left.RelativePath, right.RelativePath, StringComparison.OrdinalIgnoreCase));
@@ -96,6 +88,71 @@ internal static class ImageIndex
             .ToList();
 
         return (items, categories);
+    }
+
+    /// <summary>Reads one PNG's size and file length with a single open; returns null when skipped.</summary>
+    private static ImageItem? TryReadItem(string gameRoot, string path, string urlPrefix)
+    {
+        try
+        {
+            string relative = Path.GetRelativePath(gameRoot, path).Replace('\\', '/');
+
+            // Thumbnails live under <root>/.cache/thumbs and must not show up as export results.
+            if (relative.StartsWith(".cache/", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 4096,
+                FileOptions.SequentialScan);
+
+            long bytes = stream.Length;
+            Span<byte> header = stackalloc byte[24];
+            int read = 0;
+            while (read < header.Length)
+            {
+                int chunk = stream.Read(header[read..]);
+                if (chunk <= 0)
+                {
+                    break;
+                }
+
+                read += chunk;
+            }
+
+            int width = 0;
+            int height = 0;
+            if (read >= header.Length &&
+                header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47)
+            {
+                width = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
+                height = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
+            }
+
+            string thumbRelative = $".cache/thumbs/{relative}";
+            string name = Path.GetFileNameWithoutExtension(path);
+
+            return new ImageItem(
+                name,
+                relative,
+                CategoryOf(relative, name),
+                urlPrefix + Escape(relative),
+                urlPrefix + Escape(thumbRelative),
+                thumbRelative,
+                width,
+                height,
+                bytes);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // The CLI may still be deleting a partial export while we scan.
+            return null;
+        }
     }
 
     /// <summary>Creates (or refreshes) a 160px PNG thumbnail; transparent pixels are preserved.</summary>
@@ -207,30 +264,4 @@ internal static class ImageIndex
 
     private static string Escape(string relativePath) =>
         Uri.EscapeDataString(relativePath).Replace("%2F", "/");
-
-    private static (int Width, int Height) ReadPngSize(string path)
-    {
-        try
-        {
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var header = new byte[24];
-            if (stream.Read(header, 0, header.Length) < header.Length)
-            {
-                return (0, 0);
-            }
-
-            if (header[0] != 0x89 || header[1] != 0x50 || header[2] != 0x4E || header[3] != 0x47)
-            {
-                return (0, 0);
-            }
-
-            int width = (header[16] << 24) | (header[17] << 16) | (header[18] << 8) | header[19];
-            int height = (header[20] << 24) | (header[21] << 16) | (header[22] << 8) | header[23];
-            return (width, height);
-        }
-        catch (IOException)
-        {
-            return (0, 0);
-        }
-    }
 }

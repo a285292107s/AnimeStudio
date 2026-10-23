@@ -26,6 +26,8 @@ internal sealed class HostService
 
     private List<ImageItem> _images = [];
     private List<ImageCategory> _categories = [];
+    private readonly object _imageGate = new();
+    private int _imageVersion;
     private CancellationTokenSource? _taskCts;
 
     private AssetMapScanner.MapStats? _mapStats;
@@ -133,7 +135,7 @@ internal sealed class HostService
                 HandleTextQuery(root, requestId);
                 break;
             case "images.query":
-                HandleImagesQuery(root, requestId);
+                _ = QueryImagesAsync(root, requestId);
                 break;
             case "assets.query":
                 _ = QueryAssetsAsync(root, requestId);
@@ -278,8 +280,7 @@ internal sealed class HostService
             SettingsStore.Save(Settings);
 
             _text.Clear();
-            _images = [];
-            _categories = [];
+            InvalidateImageIndex();
             _mapStats = null;
             _mapStatsPath = null;
             _indexCacheBytes = 0;
@@ -443,8 +444,7 @@ internal sealed class HostService
     private void ResetGameOutputs()
     {
         _text.Clear();
-        _images = [];
-        _categories = [];
+        InvalidateImageIndex();
         _mapStats = null;
         _mapStatsPath = null;
         _indexCacheBytes = 0;
@@ -860,9 +860,10 @@ internal sealed class HostService
                 _text.Load(Path.Combine(GameRoot, "text"));
                 break;
             case "images":
+                InvalidateImageIndex();
                 if (GameRoot.Length > 0)
                 {
-                    (_images, _categories) = ImageIndex.Scan(GameRoot, OutputUrlPrefix());
+                    EnsureImageIndex();
                 }
 
                 break;
@@ -919,42 +920,57 @@ internal sealed class HostService
         });
     }
 
-    private void HandleImagesQuery(JsonElement root, int requestId)
+    /// <summary>
+    /// Image query runs off the message thread: scanning a freshly selected output folder can
+    /// walk tens of thousands of PNGs, and doing that inline froze the whole window.
+    /// </summary>
+    private Task QueryImagesAsync(JsonElement root, int requestId) => Task.Run(() =>
     {
-        EnsureImageIndex();
-
-        string query = GetString(root, "query") ?? string.Empty;
-        string category = GetString(root, "category") ?? "all";
-        int offset = Math.Max(0, GetInt(root, "offset") ?? 0);
-        int limit = Math.Clamp(GetInt(root, "limit") ?? 120, 1, 500);
-
-        IEnumerable<ImageItem> filtered = _images;
-
-        if (!string.IsNullOrWhiteSpace(query))
+        try
         {
-            string needle = query.Trim();
-            filtered = filtered.Where(item => item.Name.Contains(needle, StringComparison.OrdinalIgnoreCase));
-        }
+            if (_images.Count == 0 && GameRoot.Length > 0)
+            {
+                // Tell the UI why the grid stays empty for a moment; no requestId on purpose
+                // (a matching id would resolve the pending call with the wrong message type).
+                Send(new { type = "images.scanning" });
+            }
 
-        if (!string.IsNullOrWhiteSpace(category) && !category.Equals("all", StringComparison.OrdinalIgnoreCase))
-        {
-            filtered = filtered.Where(item => item.Category.StartsWith(category, StringComparison.OrdinalIgnoreCase));
-        }
+            EnsureImageIndex();
 
-        List<ImageItem> matched = filtered.ToList();
-        List<ImageItem> page = matched.Skip(offset).Take(limit).ToList();
-        string gameRoot = GameRoot;
+            string query = GetString(root, "query") ?? string.Empty;
+            string category = GetString(root, "category") ?? "all";
+            int offset = Math.Max(0, GetInt(root, "offset") ?? 0);
+            int limit = Math.Clamp(GetInt(root, "limit") ?? 120, 1, 500);
 
-        // Thumbnails are rendered off the message thread: the first page of a fresh export
-        // can need a hundred of them.
-        _ = Task.Run(() =>
-        {
-            foreach (ImageItem item in page)
+            IEnumerable<ImageItem> filtered = _images;
+
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                string needle = query.Trim();
+                filtered = filtered.Where(item => item.Name.Contains(needle, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(category) && !category.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                filtered = filtered.Where(item => item.Category.StartsWith(category, StringComparison.OrdinalIgnoreCase));
+            }
+
+            List<ImageItem> matched = filtered.ToList();
+            List<ImageItem> page = matched.Skip(offset).Take(limit).ToList();
+            string gameRoot = GameRoot;
+
+            // Thumbnails for a fresh page: GDI+ resizing in parallel cuts the first-page wait.
+            var thumbOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount, 2, 4),
+            };
+
+            Parallel.ForEach(page, thumbOptions, item =>
             {
                 ImageIndex.EnsureThumbnail(
                     Path.Combine(gameRoot, item.RelativePath),
                     Path.Combine(gameRoot, item.ThumbRelativePath));
-            }
+            });
 
             Send(new
             {
@@ -966,8 +982,12 @@ internal sealed class HostService
                 categories = _categories,
                 items = page,
             });
-        });
-    }
+        }
+        catch (Exception exception)
+        {
+            Send(new { type = "images.failed", requestId, message = exception.Message });
+        }
+    });
 
     /* ---------- asset browser (AssetMap filters) ---------- */
 
@@ -1054,6 +1074,10 @@ internal sealed class HostService
         return types.ToArray();
     }
 
+    /// <summary>
+    /// Scans the output directory once, off the UI thread. A reset (output change / game switch)
+    /// bumps the generation so an in-flight scan cannot publish results for the old directory.
+    /// </summary>
     private void EnsureImageIndex()
     {
         if (_images.Count > 0 || GameRoot.Length == 0)
@@ -1061,7 +1085,34 @@ internal sealed class HostService
             return;
         }
 
-        (_images, _categories) = ImageIndex.Scan(GameRoot, OutputUrlPrefix());
+        lock (_imageGate)
+        {
+            if (_images.Count > 0)
+            {
+                return;
+            }
+
+            string gameRoot = GameRoot;
+            if (gameRoot.Length == 0)
+            {
+                return;
+            }
+
+            int version = Volatile.Read(ref _imageVersion);
+            (List<ImageItem> items, List<ImageCategory> categories) = ImageIndex.Scan(gameRoot, OutputUrlPrefix());
+            if (version == Volatile.Read(ref _imageVersion))
+            {
+                _images = items;
+                _categories = categories;
+            }
+        }
+    }
+
+    private void InvalidateImageIndex()
+    {
+        Interlocked.Increment(ref _imageVersion);
+        _images = [];
+        _categories = [];
     }
 
     /* ---------- version diff ---------- */

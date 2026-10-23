@@ -55,6 +55,8 @@
     taskStartedAt: 0,
     taskKind: '',
     progressSamples: [],
+    imagesDirty: true,
+    imagesLoading: false,
   };
 
   let seq = 0;
@@ -165,6 +167,11 @@
       case 'task.busy':
         APP.toast('已有任务在进行中');
         break;
+      case 'images.scanning':
+        setImagesDirty();
+        APP.setStatus('正在扫描图库目录…', true);
+        setGalleryHint('正在加载图库…', '首次扫描输出目录，图片越多耗时越长');
+        break;
       case 'map.stats':
         state.mapStats = message;
         paintChrome();
@@ -237,6 +244,12 @@
 
     applySettings(message.settings, message.state);
 
+    // The shell boots with mock cards/categories; clear them before the real lazy loads.
+    APP.state.images = [];
+    APP.state.data.containers = [];
+    APP.state.data.stats.uiSprites = 0;
+    APP.renderImageGrid();
+
     if (message.state?.textTables?.length) {
       loadText('');
     } else {
@@ -245,8 +258,9 @@
       APP.renderTextList();
     }
 
-    // Images are scanned lazily by the host on the first query, so always ask.
-    loadImages('');
+    // Images are scanned lazily: a fresh output folder can hold tens of thousands of PNGs,
+    // and scanning it on startup / output change made the window briefly unresponsive.
+    setImagesDirty();
 
     APP.pushLog(`宿主已连接${message.host?.cliPath ? '：' + message.host.cliPath : '（未找到 CLI）'}`);
     if (!message.host?.cliPath) {
@@ -266,10 +280,53 @@
     state.imageTotal = 0;
     state.category = 'all';
     APP.state.imageFilter = 'all';
+    APP.state.data.containers = [];
     APP.renderTextList();
     APP.renderImageGrid();
     loadText('');
-    loadImages('');
+
+    // Do not scan the new output folder unless the gallery is actually open.
+    setImagesDirty();
+    if (document.querySelector('.tab.is-active')?.dataset.tab === 'images') {
+      ensureImagesLoaded();
+    }
+  }
+
+  function setImagesDirty() {
+    state.imagesDirty = true;
+    state.imagesLoading = false;
+    const count = $('#imageCount');
+    if (count) {
+      count.textContent = '—';
+    }
+  }
+
+  function setGalleryHint(title, detail) {
+    const grid = $('#imageGrid');
+    if (grid) {
+      grid.innerHTML = `<div class="empty"><b>${title}</b><span>${detail}</span></div>`;
+    }
+
+    const count = $('#imageCount');
+    if (count) {
+      count.textContent = '加载中…';
+    }
+  }
+
+  function ensureImagesLoaded() {
+    if (state.imagesLoading) {
+      return;
+    }
+
+    if (!state.imagesDirty && APP.state.images.length > 0) {
+      return;
+    }
+
+    if (!APP.state.images.length) {
+      setGalleryHint('正在加载图库…', '首次扫描输出目录，图片越多耗时越长');
+    }
+
+    loadImages($('#imageSearch')?.value || '', 0, state.category);
   }
 
   function applySettings(settings, hostState) {
@@ -573,54 +630,68 @@
   }
 
   async function loadImages(query, offset = 0, category = 'all') {
-    const response = await call('images.query', {
-      query: query || '',
-      category: category || 'all',
-      offset: Math.max(0, offset),
-      limit: IMAGE_PAGE,
-    });
+    state.imagesLoading = true;
+    try {
+      const response = await call('images.query', {
+        query: query || '',
+        category: category || 'all',
+        offset: Math.max(0, offset),
+        limit: IMAGE_PAGE,
+      });
 
-    if (!response || response.type !== 'images.page') {
-      return;
-    }
+      if (!response || response.type !== 'images.page') {
+        if (response?.type === 'images.failed') {
+          APP.toast(`图库加载失败：${response.message}`);
+          APP.pushLog(`图库加载失败：${response.message}`);
+        }
 
-    state.category = category || 'all';
-    state.imageOffset = response.offset || 0;
-    state.imageTotal = response.total || 0;
+        return;
+      }
 
-    APP.state.images = (response.items || []).map((item) => ({
-      id: item.relativePath,
-      name: item.name,
-      file: item.url,
-      thumb: item.thumbUrl,
-      w: item.width,
-      h: item.height,
-      kb: Math.round((item.bytes || 0) / 1024),
-      category: item.category,
-      container: item.category,
-      kind: 'Sprite',
-      block: '',
-    }));
+      state.imagesDirty = false;
+      state.category = category || 'all';
+      state.imageOffset = response.offset || 0;
+      state.imageTotal = response.total || 0;
 
-    // Keep a name registry so a selection spread over several pages can still be exported.
-    (response.items || []).forEach((item) => {
-      state.imageNames.set(item.relativePath, item.name);
-    });
-
-    if (response.categories?.length) {
-      APP.state.data.containers = response.categories.map((entry) => ({
-        id: entry.id,
-        label: entry.label,
-        count: entry.count,
+      APP.state.images = (response.items || []).map((item) => ({
+        id: item.relativePath,
+        name: item.name,
+        file: item.url,
+        thumb: item.thumbUrl,
+        w: item.width,
+        h: item.height,
+        kb: Math.round((item.bytes || 0) / 1024),
+        category: item.category,
+        container: item.category,
+        kind: 'Sprite',
+        block: '',
       }));
-    }
 
-    APP.state.imageFilter = state.category;
-    APP.state.data.stats.uiSprites = response.available ?? response.total ?? 0;
-    paintChrome();
-    $('#imageFilters').style.display = '';
-    APP.renderImageGrid();
-    updatePagers();
+      // Keep a name registry so a selection spread over several pages can still be exported.
+      (response.items || []).forEach((item) => {
+        state.imageNames.set(item.relativePath, item.name);
+      });
+
+      if (response.categories?.length) {
+        APP.state.data.containers = response.categories.map((entry) => ({
+          id: entry.id,
+          label: entry.label,
+          count: entry.count,
+        }));
+      }
+
+      APP.state.imageFilter = state.category;
+      APP.state.data.stats.uiSprites = response.available ?? response.total ?? 0;
+      paintChrome();
+      $('#imageFilters').style.display = '';
+      APP.renderImageGrid();
+      updatePagers();
+      if (!state.taskRunning) {
+        APP.setStatus('就绪');
+      }
+    } finally {
+      state.imagesLoading = false;
+    }
   }
 
   function updatePagers() {
@@ -957,7 +1028,10 @@
     if (message.kind === 'text') {
       loadText('');
     } else if (message.kind === 'images') {
-      loadImages('', 0, state.category);
+      setImagesDirty();
+      if (document.querySelector('.tab.is-active')?.dataset.tab === 'images') {
+        ensureImagesLoaded();
+      }
     }
   }
 
@@ -1130,6 +1204,12 @@
 
   document.addEventListener('click', (event) => {
     const hit = (selector) => event.target.closest(selector);
+
+    // 图库延迟加载：切到图库标签时才扫描，避免启动/换输出目录时被几万张图卡住。
+    const tabHit = event.target.closest('.tab[data-tab]');
+    if (tabHit && tabHit.dataset.tab === 'images') {
+      setTimeout(ensureImagesLoaded, 0);
+    }
 
     if (hit('#openSettings')) {
       stop(event);
@@ -1311,6 +1391,7 @@
         }
       } else {
         APP.switchTab('images');
+        ensureImagesLoaded();
         APP.toast('在图库里勾选后点「导出 PNG」');
       }
       return;
