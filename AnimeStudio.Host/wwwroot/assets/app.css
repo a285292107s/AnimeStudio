@@ -273,34 +273,38 @@ button { font: inherit; color: inherit; }
 .indexfacts__row {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  flex-wrap: wrap;
+  gap: 5px;
   min-width: 0;
 }
 
 .indexfacts__key {
   flex: none;
-  width: 58px;
-  font-size: 10.5px;
+  width: 44px;
+  font-size: 10px;
   color: var(--faint);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
 }
 
 .indexfacts__val {
+  flex: none;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 500;
   color: var(--fg);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .indexfacts__badge {
   flex: none;
-  padding: 1px 5px;
+  padding: 0 4px;
   border: 1px solid var(--rule-strong);
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 9px;
   color: var(--muted);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .indexfacts__badge--warn {

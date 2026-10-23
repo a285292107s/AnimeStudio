@@ -324,6 +324,10 @@
 
     $('#gamePath').textContent = state.settings.gameDataPath || '未选择游戏目录（点「更换」）';
     $('#gamePath').title = state.settings.gameDataPath || '';
+    const gamePathHint = $('#gamePathHint');
+    if (gamePathHint) {
+      gamePathHint.textContent = `${nameOfGame(state.settings.game)}的 *_Data 安装目录；换游戏时自动切换。`;
+    }
     $('#outDir').textContent = state.settings.outputDirectory || '未选择输出目录（点击选择）';
     $('#outDir').title = state.settings.outputDirectory || '';
     const outHint = $('#outHint');
