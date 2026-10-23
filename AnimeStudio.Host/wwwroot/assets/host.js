@@ -59,6 +59,20 @@
 
   let seq = 0;
 
+  /// <summary>
+  /// One source of truth for a game's export directory: the settings dialog rows and the rail
+  /// OUTPUT block both read from <c>outputDirectories</c>, falling back to the active game's
+  /// resolved <c>outputDirectory</c>.
+  /// </summary>
+  function outputPathFor(game = state.settings.game) {
+    const outputs = state.settings.outputDirectories || {};
+    if (outputs[game]) {
+      return outputs[game];
+    }
+
+    return game === state.settings.game ? (state.settings.outputDirectory || '') : '';
+  }
+
   // app.js loads its shell asynchronously (mock/data.json); a welcome reply can arrive
   // before APP.state.data exists, so hold host messages until the shell is ready.
   let shellReady = Boolean(APP.state.data);
@@ -102,12 +116,12 @@
         onWelcome(message);
         break;
       case 'settings.changed': {
-        const previousOutput = state.settings.outputDirectory;
+        const previousOutput = outputPathFor();
         applySettings(message.settings, message.state);
         if ($('#settings') && !$('#settings').hidden) {
           fillSettingsForm();
         }
-        if (previousOutput !== state.settings.outputDirectory) {
+        if (previousOutput !== outputPathFor()) {
           resetOutputViews();
         }
         break;
@@ -328,15 +342,18 @@
     if (gamePathHint) {
       gamePathHint.textContent = `${nameOfGame(state.settings.game)}的 *_Data 安装目录；换游戏时自动切换。`;
     }
-    $('#outDir').textContent = state.settings.outputDirectory || '未选择输出目录（点击选择）';
-    $('#outDir').title = state.settings.outputDirectory || '';
+    const outputPath = outputPathFor();
+    $('#outDir').textContent = outputPath || '未选择输出目录（点击选择）';
+    $('#outDir').title = outputPath;
+    const outGameLabel = $('#outGameLabel');
+    if (outGameLabel) {
+      outGameLabel.textContent = `当前游戏：${nameOfGame(state.settings.game)}`;
+    }
     const outHint = $('#outHint');
     if (outHint) {
-      const game = nameOfGame(state.settings.game);
-      const other = state.settings.outputDirectories?.[state.settings.game === 'SR' ? 'ZZZ' : 'SR'];
-      outHint.textContent = state.settings.outputDirectory
-        ? `${game} 独立目录 · 切换游戏自动切换${other ? '' : '（另一游戏尚未设置）'}`
-        : `${game} 还没有输出目录：点上面的路径选择`;
+      outHint.textContent = outputPath
+        ? '每款游戏独立目录；切换游戏自动同步，可在「设置」里分别修改。'
+        : '还没有输出目录：点上面的路径去选择。';
     }
 
     const ready = Boolean(state.hostState?.mapExists);
@@ -396,8 +413,9 @@
     }
 
     const mapPathElement = $('#indexMapPath');
-    const expectedMapPath = state.settings.outputDirectory && state.settings.indexName
-      ? `${state.settings.outputDirectory}\\index\\${state.settings.indexName}.map`
+    const expectedOutput = outputPathFor();
+    const expectedMapPath = expectedOutput && state.settings.indexName
+      ? `${expectedOutput}\\index\\${state.settings.indexName}.map`
       : '';
     const manual = Boolean(mapPath && expectedMapPath &&
       mapPath.replace(/\//g, '\\').toLowerCase() !== expectedMapPath.replace(/\//g, '\\').toLowerCase());
@@ -432,7 +450,6 @@
   /// <summary>First-run guidance: only when something is still missing, and only until dismissed.</summary>
   function fillSettingsForm() {
     const settings = state.settings || {};
-    const outputs = settings.outputDirectories || {};
     const put = (selector, value) => {
       const input = $(selector);
       if (input) {
@@ -445,8 +462,8 @@
     put('#settingsMapPath', settings.mapPath);
     put('#settingsIndexName', settings.indexName);
     put('#settingsOutputPath', settings.outputDirectory);
-    put('#settingsOutputSR', outputs.SR || (settings.game === 'SR' ? settings.outputDirectory : ''));
-    put('#settingsOutputZZZ', outputs.ZZZ || (settings.game === 'ZZZ' ? settings.outputDirectory : ''));
+    put('#settingsOutputSR', outputPathFor('SR'));
+    put('#settingsOutputZZZ', outputPathFor('ZZZ'));
 
     // Mark the game the rest of the dialog (game dir, map, index) belongs to.
     document.querySelectorAll('#settingsOutputs .outputs__row').forEach((row) => {
@@ -490,7 +507,7 @@
       return;
     }
 
-    const hasOutput = Boolean(state.settings.outputDirectory);
+    const hasOutput = Boolean(outputPathFor());
     const hasMap = Boolean(state.hostState?.mapExists);
     overlay.hidden = state.wizardDismissed || (hasOutput && hasMap);
 
@@ -501,7 +518,7 @@
 
     const outputPath = $('#welcomeOutputPath');
     if (outputPath) {
-      outputPath.textContent = state.settings.outputDirectory || '未选择';
+      outputPath.textContent = outputPathFor() || '未选择';
     }
 
     const outputLabel = $('#welcomeOutputLabel');

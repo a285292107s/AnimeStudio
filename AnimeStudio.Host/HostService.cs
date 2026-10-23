@@ -68,22 +68,7 @@ internal sealed class HostService
     }
 
     /// <summary>Current game's own output directory; each game has an independent one.</summary>
-    public string GameRoot
-    {
-        get
-        {
-            string configured = Profile.OutputDirectory?.Trim() ?? string.Empty;
-            if (configured.Length > 0)
-            {
-                return configured;
-            }
-
-            // Fallback for settings that were never migrated.
-            return string.IsNullOrWhiteSpace(Settings.OutputDirectory)
-                ? string.Empty
-                : Path.Combine(Settings.OutputDirectory!, Settings.Game);
-        }
-    }
+    public string GameRoot => ResolveOutputDirectory(Settings.Game);
 
     /// <summary>Registers a URL for every configured game output before the page loads.</summary>
     public void WarmOutputMappings()
@@ -322,6 +307,18 @@ internal sealed class HostService
         QueueMapStats(force: false);
     }
 
+    /// <summary>Resolved output directory for one game (per-game setting, else legacy shared root).</summary>
+    private string ResolveOutputDirectory(string game)
+    {
+        if (Settings.Profiles.TryGetValue(game, out GameProfile? profile) &&
+            !string.IsNullOrWhiteSpace(profile.OutputDirectory))
+        {
+            return profile.OutputDirectory!.Trim();
+        }
+
+        return SettingsStore.LegacyGameRoot(Settings, game)?.Trim() ?? string.Empty;
+    }
+
     private object SettingsDto() => new
     {
         game = Settings.Game,
@@ -332,9 +329,14 @@ internal sealed class HostService
         mapPath = MapPath(),
         indexName = Profile.IndexName,
         profiles = Settings.Profiles.Keys,
-        outputDirectories = Settings.Profiles
-            .Where(static pair => !string.IsNullOrWhiteSpace(pair.Value.OutputDirectory))
-            .ToDictionary(static pair => pair.Key, static pair => pair.Value.OutputDirectory, StringComparer.OrdinalIgnoreCase),
+        // Both games, already resolved: the settings dialog and the rail OUTPUT block must
+        // never disagree about which directory a game exports to.
+        outputDirectories = new[] { GameInstallScanner.HonkaiStarRail, GameInstallScanner.ZenlessZoneZero }
+            .Concat(Settings.Profiles.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(game => new { game, path = ResolveOutputDirectory(game) })
+            .Where(static entry => entry.path.Length > 0)
+            .ToDictionary(static entry => entry.game, static entry => entry.path, StringComparer.OrdinalIgnoreCase),
     };
 
     private object StateDto() => new

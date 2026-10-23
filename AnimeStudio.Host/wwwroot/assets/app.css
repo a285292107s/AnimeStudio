@@ -246,7 +246,15 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 
-.path--out { display: block; margin-bottom: 12px; }
+.path--out {
+  display: block;
+  margin-bottom: 8px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-all;
+  line-height: 1.55;
+}
 
 .indexmeta {
   margin: 8px 0 10px;

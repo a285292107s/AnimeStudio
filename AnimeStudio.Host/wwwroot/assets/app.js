@@ -103,6 +103,8 @@
     $('#indexMeta').textContent =
       `v${game.version} · 索引 ${(stats.indexBytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
     $('#indexChipText').textContent = `索引就绪 v${game.version}`;
+    $('#outGameLabel').textContent = `当前游戏：${game.name}`;
+    $('#outDir').textContent = `mock/${game.id.toLowerCase()}-out`;
 
     const statItems = [
       ['资产总数', stats.assets],
