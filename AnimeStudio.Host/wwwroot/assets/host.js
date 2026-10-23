@@ -515,9 +515,10 @@
     if (formatElement) {
       formatElement.textContent = mapFormat === 'compact'
         ? 'v2 紧凑'
-        : mapFormat === 'messagepack'
-          ? 'v1 兼容'
+        : mapFormat === 'unknown'
+          ? '旧格式 · 请重建'
           : '—';
+      formatElement.classList.toggle('indexfacts__badge--warn', mapFormat === 'unknown');
       formatElement.hidden = !mapFormat;
     }
 
@@ -532,22 +533,9 @@
     }
 
     const mapPathElement = $('#indexMapPath');
-    const expectedOutput = outputPathFor();
-    const expectedMapPath = expectedOutput && state.settings.indexName
-      ? `${expectedOutput}\\index\\${state.settings.indexName}.map`
-      : '';
-    const manual = Boolean(mapPath && expectedMapPath &&
-      mapPath.replace(/\//g, '\\').toLowerCase() !== expectedMapPath.replace(/\//g, '\\').toLowerCase());
-
     if (mapPathElement) {
       mapPathElement.textContent = mapPath || '—';
       mapPathElement.title = mapPath;
-      mapPathElement.classList.toggle('is-manual', manual);
-    }
-
-    const manualElement = $('#indexManual');
-    if (manualElement) {
-      manualElement.hidden = !manual;
     }
 
     // 统计来自索引（Host 后台扫描）；结果未到时用 — 占位，不显示 mock 数字。
@@ -579,7 +567,6 @@
 
     put('#settingsGamePath', settings.gameDataPath);
     put('#settingsCliPath', settings.cliPath);
-    put('#settingsMapPath', settings.mapPath);
     put('#settingsIndexName', settings.indexName);
     // A default-location index has no settings path; show where it actually came from.
     put('#settingsContainerIndex', settings.containerIndexPath || state.containerIndex?.path || '');
@@ -1160,21 +1147,10 @@
       name: $('#assetName')?.value || '',
       container: $('#assetContainer')?.value || '',
       source: $('#assetSource')?.value || '',
-      types: assetTypes(),
       // 「只看有路径的」：ZZZ 的哈希未收录时只剩数字，默认不列出来。
       onlyResolved: $('#assetOnlyContainers') ? $('#assetOnlyContainers').checked : true,
       limit: 300,
     };
-  }
-
-  /// <summary>「图像」是 Sprite + Texture2D：导出 PNG 只可能是这两类。</summary>
-  function assetTypes() {
-    const value = $('#assetType')?.value || 'image';
-    if (value === 'all') {
-      return [];
-    }
-
-    return value === 'image' ? ['Sprite', 'Texture2D'] : [value];
   }
 
   /// <summary>Drops the rows read from the previous map and marks the pane as needing a query.</summary>
@@ -1513,7 +1489,7 @@
     }
 
     const payload = {
-      types: filters.types.length > 0 ? filters.types : ['Sprite', 'Texture2D'],
+      types: ['Sprite', 'Texture2D'],
     };
 
     if (name) {
@@ -1526,7 +1502,7 @@
 
     state.pendingExport = { count: null, fromSelection: false };
     runTask('images', payload);
-    APP.pushLog(`导出全部匹配：${[name && `名称≈${name}`, container && `容器≈${container}`, filters.types.join('/')].filter(Boolean).join('，')}`);
+    APP.pushLog(`导出全部匹配：${[name && `名称≈${name}`, container && `容器≈${container}`].filter(Boolean).join('，')}`);
   }
 
   function escapeHtml(value) {
@@ -1653,10 +1629,6 @@
           input.value = '';
         }
       });
-      const type = $('#assetType');
-      if (type) {
-        type.value = 'image';
-      }
       const only = $('#assetOnlyContainers');
       if (only) {
         only.checked = true;
@@ -1725,7 +1697,6 @@
         settings: {
           gameDataPath: $('#settingsGamePath').value,
           cliPath: $('#settingsCliPath').value,
-          mapPath: $('#settingsMapPath').value,
           indexName: $('#settingsIndexName').value,
           containerIndexPath: $('#settingsContainerIndex')?.value || '',
           outputDirectories: outputs,

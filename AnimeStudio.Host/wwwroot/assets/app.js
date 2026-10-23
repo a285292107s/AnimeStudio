@@ -9,6 +9,22 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const nf = new Intl.NumberFormat('zh-CN');
   const fmt = (n) => nf.format(n);
+  const fmtSize = (bytes) => {
+    if (!bytes || bytes <= 0) {
+      return '—';
+    }
+
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+
+    const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+    return `${value.toFixed(digits)} ${units[unit]}`;
+  };
 
   const state = {
     data: null,
@@ -107,7 +123,7 @@
     $('#gamePath').textContent = game.path;
     $('#gamePath').title = game.path;
     $('#indexMeta').textContent =
-      `v${game.version} · 索引 ${(stats.indexBytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+      `v${game.version} · 索引 ${fmtSize(stats.indexBytes)}`;
     $('#indexChipText').textContent = `索引就绪 v${game.version}`;
     $('#outGameLabel').textContent = `当前游戏：${game.name}`;
     $('#outDir').textContent = `mock/${game.id.toLowerCase()}-out`;
@@ -242,7 +258,7 @@
     ];
 
     const bytes = info?.mapBytes ?? state.data.stats.indexBytes;
-    rows.push(metaRow('地图大小', bytes ? (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB' : '—'));
+    rows.push(metaRow('地图大小', fmtSize(bytes)));
     rows.push(metaRow('地图路径', info?.mapPath || '—'));
     return rows.join('');
   }

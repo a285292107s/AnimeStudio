@@ -10,8 +10,6 @@ internal sealed class GameProfile
 {
     public string? DataPath { get; set; }
 
-    public string? MapPath { get; set; }
-
     public string IndexName { get; set; } = "game";
 
     /// <summary>This game's output directory (text/, ui/, index/ and .cache/ live here).</summary>
@@ -48,8 +46,6 @@ internal sealed class HostSettings
 
     // Legacy single-game fields, only read for migration.
     public string? GameDataPath { get; set; }
-
-    public string? MapPath { get; set; }
 
     public string IndexName { get; set; } = "game";
 }
@@ -90,7 +86,6 @@ internal static class SettingsStore
             settings.Profiles[settings.Game] = new GameProfile
             {
                 DataPath = settings.GameDataPath,
-                MapPath = settings.MapPath,
                 IndexName = string.IsNullOrWhiteSpace(settings.IndexName) ? "game" : settings.IndexName,
             };
         }

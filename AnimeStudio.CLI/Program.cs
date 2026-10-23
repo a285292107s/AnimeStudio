@@ -77,7 +77,6 @@ namespace AnimeStudio.CLI
                 Logger.FileLogging = Settings.Default.enableFileLogging;
                 AssetsHelper.Minimal = Settings.Default.minimalAssetMap;
                 AssetsHelper.SkipHash = o.NoHash;
-                AssetsHelper.MapFormat = o.MapFormat;
                 AssetsHelper.ThreadCount = Math.Max(1, o.Threads);
                 AssetsHelper.ForceMapRebuild = o.MapFull;
                 AssetsHelper.Profile = Environment.GetEnvironmentVariable("ANIMESTUDIO_MAP_PROFILE") == "1";

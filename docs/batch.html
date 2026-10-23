@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>批量与资产地图 · AnimeStudio 说明书</title>
-<meta name="description" content="AnimeStudio 命令行批处理：23 个参数的真实默认值、三个必踩的坑、按文件流式处理的代价，以及资产地图与 Asset Browser 的用法和局限。">
+<meta name="description" content="AnimeStudio 命令行批处理：22 个参数的真实默认值、三个必踩的坑、按文件流式处理的代价，以及资产地图与 Asset Browser 的用法和局限。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
@@ -69,7 +69,7 @@
         <p>本页内容</p>
         <a href="#when">什么时候该用命令行</a>
         <a href="#examples">三条能直接复制的命令</a>
-        <a href="#flags">23 个参数的默认值</a>
+        <a href="#flags">22 个参数的默认值</a>
         <a href="#pits">三个必须知道的坑</a>
         <a href="#stream">一个文件一个文件地干</a>
         <a href="#asset-map">资产地图：先建索引再回捞</a>
@@ -98,8 +98,8 @@
       <pre><code>AnimeStudio.CLI.exe "D:\Games\ZZZ" "D:\Out\zzz-ui" --game ZZZ --map_op AssetMap,Load --map_type MessagePack --map_name "D:\Maps\zzz\zzz-assets.map" --names "ui_.*" --types Sprite</code></pre>
       <p>这条读上一条的索引，只加载名字匹配 <code>ui_.*</code> 的精灵所在的包，再导出。<code>AssetMap,Load</code> 就是「用现成的 map」，所以 <code>--map_name</code> 要给带 <code>.map</code> 的完整路径。</p>
 
-      <h2 id="flags">23 个参数的默认值</h2>
-      <p>21 个 flag 加两个位置参数，默认值全在 <code>Components/CommandLine.cs</code> 里。</p>
+      <h2 id="flags">22 个参数的默认值</h2>
+      <p>20 个 flag 加两个位置参数，默认值全在 <code>Components/CommandLine.cs</code> 里。</p>
 
       <div class="table-wrap">
         <table>
@@ -144,7 +144,7 @@
 
       <div class="table-wrap">
         <table>
-          <caption>地图相关的七项</caption>
+          <caption>地图相关的六项</caption>
           <thead>
             <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
           </thead>
@@ -152,7 +152,6 @@
             <tr><td><code>--map_op</code></td><td><code>None</code></td><td><code>CABMap</code> / <code>AssetMap</code> / <code>Both</code> / <code>Load</code>，可逗号组合。</td></tr>
             <tr><td><code>--map_type</code></td><td><code>XML</code></td><td><code>MessagePack</code> / <code>XML</code> / <code>JSON</code> / <code>None</code>。</td></tr>
             <tr><td><code>--map_name</code></td><td><code>assets_map</code></td><td>地图文件名。Load 模式要给完整路径。</td></tr>
-            <tr><td><code>--map_format</code></td><td><code>Compact</code></td><td><code>Compact</code>（v2，约小 5 倍）或 <code>MessagePack</code>（旧格式）；Load 时自动识别。</td></tr>
             <tr><td><code>--threads</code></td><td><code>4</code></td><td>建图并行线程数，<code>1</code> = 单线程。</td></tr>
             <tr><td><code>--map_full</code></td><td>关</td><td>忽略增量缓存，重扫全部文件。</td></tr>
             <tr><td><code>--no_hash</code></td><td>关</td><td>建图时不计算每个资产的 Hash：少扫一遍资产字节，地图更小，Hash 列为空；提取不用这一列。</td></tr>
@@ -216,14 +215,21 @@
         <li><strong>反复导出</strong>。今天要贴图、明天要动作，建一次能用很多次。</li>
         <li><strong>版本对比</strong>。两份 map 一比，就知道这次更新加了什么、删了什么。</li>
       </ul>
-      <p><code>.map</code>（MessagePack）每条存七样：名字、容器、来源包、PathID、类型、Hash、偏移。<code>.xml</code> 只存前五样，没有 Hash 也没有偏移——要比版本差异、要用偏移回捞，就得用 <code>.map</code> 或 <code>.json</code>。</p>
+      <p><code>.map</code>（紧凑 v2，文件头写着 <code>ASM2</code>）每条存七样：名字、容器、来源包、PathID、类型、Hash、偏移。<code>.xml</code> 只存前五样，没有 Hash 也没有偏移——要比版本差异、要用偏移回捞，就得用 <code>.map</code> 或 <code>.json</code>。</p>
+      <p>网页宿主建索引时只收贴图类（<code>Sprite</code> + <code>Texture2D</code>）：索引的用途是「找图 → 回捞」，把音频、网格、脚本也塞进去只会让地图大好几倍，而界面上又没有按类型筛选的必要了。想要全套条目就用命令行 <code>--map_op AssetMap --map_type MessagePack</code> 并不加 <code>--types</code>。</p>
+      <p>绝区零的容器在游戏里是 xxhash64。建图时如果手边有 Z3 哈希索引（<code>--container_index</code>，或者程序自己找到的那份），哈希会当场换成 <code>Assets/NapResources/UI/…</code> 这样的路径写进地图；没有索引就先存数字，查询时再还原——两种地图都能用，不用为了换个索引重建。贴图条目里约 71% 能换出路径，剩下 29% 是上游索引也没收录的哈希，网页宿主的「只看有路径的」就是把这批数字挡在外面。</p>
       <p>CAB map 是另一份东西，落在工作目录的 <code>Maps\&lt;名字&gt;.bin</code>，不是输出目录。它按 CAB 名记两件事：这个 CAB 在哪个包的哪个字节偏移、依赖哪些别的 CAB。有了偏移，加载时只从需要的位置解开，不必整包读完，所以超大包先建 CAB map 再导提升明显。</p>
       <p>顺带一个反直觉的地方：<code>Load</code> 位在这两个分支里含义相反——<code>AssetMap,Load</code> 是读图，<code>CABMap,Load</code> 是建图；单独写 <code>--map_op CABMap</code> 才是去读 <code>Maps\</code> 下的旧图。</p>
 
       <h2 id="asset-browser">Asset Browser 能干什么</h2>
-      <p>Asset Browser 是专门读 map 的工具（菜单的 Load AssetMap），只认 <code>.map</code> 和 <code>.json</code>，不认 <code>.xml</code>。</p>
+      <p>Asset Browser 是原版 GUI 里的老工具（菜单的 Load AssetMap），只认 <code>.map</code> 和 <code>.json</code>，不认 <code>.xml</code>。</p>
 
-      <p>新版 Host/CLI 默认写<strong>紧凑 v2 地图</strong>（<code>--map_format Compact</code>，同样 733 万条时从 1.93 GB 降到约 386 MB），并按文件做增量缓存：游戏补丁后重建只重扫变化的包，通常几秒。老的 Asset Browser 不认 v2，要给它看就加 <code>--map_format MessagePack</code> 重建成旧格式；网页宿主和 CLI 的 <code>AssetMap,Load</code> 两种格式都能读，<code>--threads</code> 控制建图并行度（默认 4）。</p>
+      <div class="callout">
+        <h3>它读不了新版的地图</h3>
+        <p>现在只写<strong>紧凑 v2 地图</strong>：同样 733 万条，旧布局约 1.93 GB，v2 约 386 MB。旧的 v1 逐条 MessagePack 布局已经彻底移除——拿旧图去 Load 会直接报「只支持 v2 紧凑地图（ASM2），请重新建索引」。所以回捞请走网页宿主的「资源浏览 / UI 图库」，下面这些 Asset Browser 的操作只对当年那批旧 map 还有效。</p>
+      </div>
+
+      <p>建图仍然按文件做增量缓存：游戏补丁后重建只重扫变化的包，通常几秒。缓存落在 <code>&lt;输出目录&gt;\index\.cache\</code> 下，一个过滤组合一个目录，互不干扰；<code>--map_full</code> 可以无视它重扫全部文件，<code>--threads</code> 控制并行度（默认 4）。</p>
 
       <figure class="plate">
         <div class="ui" data-ui>

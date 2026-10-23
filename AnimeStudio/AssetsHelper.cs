@@ -29,16 +29,12 @@ namespace AnimeStudio
         /// </summary>
         public static bool SkipHash;
 
-        /// <summary>MessagePack writes the legacy format; Compact writes <see cref="AssetMapV2"/>.</summary>
-        public static MapFormat MapFormat = MapFormat.MessagePack;
-
         /// <summary>Worker count for the compact map builder (1 = sequential).</summary>
         public static int ThreadCount = 1;
 
         /// <summary>Ignore the incremental map cache and reparse every input file.</summary>
         public static bool ForceMapRebuild;
 
-        private const int MessagePackMapHeaderSize = 11; // fixarray(2) + int32 game + array32 count
         private const long GcAllocationThreshold = 512L * 1024 * 1024;
         private static long lastGcAllocatedBytes;
 
@@ -509,9 +505,9 @@ namespace AnimeStudio
                     UpdateContainers(assets, game);
                     await ExportAssetsMap(assets, game, mapName, savePath, exportListType);
                 }
-                else if (exportListType == ExportListType.MessagePack && MapFormat == MapFormat.Compact)
+                else if (exportListType == ExportListType.MessagePack)
                 {
-                    // Compact v2: file-grouped varint entries + incremental cache + parallel workers.
+                    // The binary map is always the compact v2 layout; v1 is gone.
                     await Task.Run(() => BuildAssetMapCompact(files, mapName, game, savePath, typeFilters, nameFilters, containerFilters));
                 }
                 else
@@ -539,11 +535,6 @@ namespace AnimeStudio
             Directory.CreateDirectory(savePath);
 
             var entryCount = 0L;
-            var mpOptions = MessagePackSerializerOptions.Standard;
-            var entryBuffer = new ArrayBufferWriter<byte>(1 << 16);
-            FileStream output = null;
-            string partialPath = null;
-            string mapPath = null;
             XmlWriter xmlWriter = null;
             string xmlPath = null;
 
@@ -558,22 +549,6 @@ namespace AnimeStudio
 
             try
             {
-                if (exportListType.HasFlag(ExportListType.MessagePack))
-                {
-                    mapPath = Path.Combine(savePath, $"{mapName}.map");
-                    partialPath = mapPath + ".partial";
-                    output = new FileStream(partialPath, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, FileOptions.SequentialScan);
-
-                    // Reserved header: [2, gameType:int32, entries:array32<count>].
-                    // The count is filled in after the scan; its width never changes.
-                    Span<byte> header = stackalloc byte[MessagePackMapHeaderSize];
-                    header[0] = 0x92; // fixarray(2)
-                    header[1] = 0xCE; // int32
-                    BinaryPrimitives.WriteInt32BigEndian(header[2..], (int)game.Type);
-                    header[6] = 0xDD; // array32
-                    output.Write(header);
-                }
-
                 if (exportListType.HasFlag(ExportListType.XML))
                 {
                     xmlPath = Path.Combine(savePath, $"{mapName}.xml");
@@ -596,22 +571,6 @@ namespace AnimeStudio
                     foreach (var asset in batch)
                     {
                         entryCount++;
-                        if (output != null)
-                        {
-                            // Serialize into a reusable buffer instead of one stream call per
-                            // entry: HSR writes 7.3M entries and per-call overhead adds up.
-                            long serializeStart = Profile ? Stopwatch.GetTimestamp() : 0;
-                            MessagePackSerializer.Serialize(entryBuffer, asset, mpOptions);
-                            if (entryBuffer.WrittenCount >= 1 << 16)
-                            {
-                                output.Write(entryBuffer.WrittenSpan);
-                                entryBuffer.ResetWrittenCount();
-                            }
-                            if (Profile)
-                            {
-                                profileSerializeTicks += Stopwatch.GetTimestamp() - serializeStart;
-                            }
-                        }
                         if (xmlWriter != null)
                         {
                             xmlWriter.WriteStartElement("Asset");
@@ -635,31 +594,6 @@ namespace AnimeStudio
                     xmlWriter.Flush();
                 }
 
-                if (output != null)
-                {
-                    if (entryBuffer.WrittenCount > 0)
-                    {
-                        output.Write(entryBuffer.WrittenSpan);
-                        entryBuffer.ResetWrittenCount();
-                    }
-
-                    if (entryCount > int.MaxValue)
-                    {
-                        throw new InvalidOperationException($"Asset map has {entryCount} entries which exceeds MessagePack array limits.");
-                    }
-
-                    Span<byte> countBytes = stackalloc byte[4];
-                    BinaryPrimitives.WriteUInt32BigEndian(countBytes, (uint)entryCount);
-                    output.Position = 7; // 0x92, 0xCE, game:int32, 0xDD
-                    output.Write(countBytes);
-                    output.Flush();
-                    output.Dispose();
-                    output = null;
-
-                    File.Move(partialPath, mapPath, overwrite: true);
-                    partialPath = null;
-                }
-
                 if (!exportListType.Equals(ExportListType.None))
                 {
                     LogProfileBreakdown(entryCount);
@@ -669,11 +603,6 @@ namespace AnimeStudio
             finally
             {
                 xmlWriter?.Dispose();
-                output?.Dispose();
-                if (partialPath != null && File.Exists(partialPath))
-                {
-                    try { File.Delete(partialPath); } catch { /* best-effort */ }
-                }
             }
         }
 
@@ -876,20 +805,9 @@ namespace AnimeStudio
                             // identity when the raw payload dwarfs the rest of the entry.
                             const uint largeHashSkip = 16u * 1024 * 1024;
                             long hashStart = Profile ? Stopwatch.GetTimestamp() : 0;
-                            if (MapFormat == MapFormat.Compact)
-                            {
-                                asset.Hash64 = SkipHash || hashSource.byteSize >= largeHashSkip
-                                    ? 0
-                                    : hashSource.GetRawHash();
-                            }
-                            else
-                            {
-                                asset.Hash = SkipHash
-                                    ? string.Empty
-                                    : hashSource.byteSize >= largeHashSkip
-                                        ? $"size:{hashSource.byteSize:x}"
-                                        : hashSource.GetHash();
-                            }
+                            asset.Hash64 = SkipHash || hashSource.byteSize >= largeHashSkip
+                                ? 0
+                                : hashSource.GetRawHash();
 
                             if (Profile)
                             {
@@ -942,47 +860,22 @@ namespace AnimeStudio
         public static string[] ParseAssetMap(string mapName, ExportListType mapType, ClassIDType[] typeFilter, Regex[] nameFilter, Regex[] containerFilter, bool dedupeNames = false)
         {
             var matches = new HashSet<string>();
-            var seenNames = dedupeNames ? new HashSet<string>(StringComparer.Ordinal) : null;
 
             switch (mapType)
             {
                 case ExportListType.MessagePack:
                     {
-                        // A full HSR map is ~7.3M entries / ~2GB and deserializing it into
-                        // AssetEntry objects costs ~4GB of RAM. When the map is the raw
-                        // (uncompressed) CLI format, stream the matches instead.
-                        if (AssetMapScanner.IsRawAssetMap(mapName))
+                        // The binary map is always the compact v2 layout; stream the matches so a
+                        // multi-million-entry map never lands in memory.
+                        var scan = AssetMapScanner.SelectSources(mapName, typeFilter, nameFilter, containerFilter, dedupeNames);
+                        foreach (var source in scan.Sources)
                         {
-                            var scan = AssetMapScanner.SelectSources(mapName, typeFilter, nameFilter, containerFilter, dedupeNames);
-                            foreach (var source in scan.Sources)
-                            {
-                                matches.Add(source);
-                            }
-
-                            Logger.Info($"AssetMap scan: {scan.MatchedEntries:N0}/{scan.TotalEntries:N0} entries matched, " +
-                                        $"{scan.Sources.Count:N0} source file(s), " +
-                                        $"{scan.BytesConsumed / (1024 * 1024):N0} MB in {scan.Elapsed.TotalSeconds:F1} s");
+                            matches.Add(source);
                         }
-                        else
-                        {
-                            using var stream = File.OpenRead(mapName);
-                            var assetMap = MessagePackSerializer.Deserialize<AssetMap>(stream, MessagePackSerializerOptions.Standard.WithCompression(MessagePackCompression.Lz4BlockArray));
-                            foreach(var entry in assetMap.AssetEntries)
-                            {
-                                var isNameMatch = nameFilter.Length == 0 || nameFilter.Any(x => x.IsMatch(entry.Name));
-                                var isContainerMatch = containerFilter.Length == 0 || containerFilter.Any(x => x.IsMatch(entry.Container));
-                                var isTypeMatch = typeFilter.Length == 0 || typeFilter.Any(x => x == entry.Type);
-                                if (isNameMatch && isContainerMatch && isTypeMatch)
-                                {
-                                    if (seenNames is not null && !seenNames.Add($"{(long)entry.Type}\u0000{entry.Name}"))
-                                    {
-                                        continue;
-                                    }
 
-                                    matches.Add(entry.Source);
-                                }
-                            }
-                        }
+                        Logger.Info($"AssetMap scan: {scan.MatchedEntries:N0}/{scan.TotalEntries:N0} entries matched, " +
+                                    $"{scan.Sources.Count:N0} source file(s), " +
+                                    $"{scan.BytesConsumed / (1024 * 1024):N0} MB in {scan.Elapsed.TotalSeconds:F1} s");
                     }
 
                     break;
@@ -1150,9 +1043,15 @@ namespace AnimeStudio
                 }
             });
         }
+        /// <summary>
+        /// Build the CAB map and the compact AssetMap in one command. The binary map always uses
+        /// the v2 layout (v1/MessagePack maps are no longer produced), so this just builds the CAB
+        /// index first and then runs the same compact map builder the Host uses.
+        /// </summary>
         public static async Task BuildBoth(string[] files, string mapName, string baseFolder, Game game, string savePath, ExportListType exportListType, ClassIDType[] typeFilters = null, Regex[] nameFilters = null, Regex[] containerFilters = null)
         {
-            Logger.Info($"Building Both...");
+            Logger.Info("Building Both...");
+
             try
             {
                 CABMap.Clear();
@@ -1161,138 +1060,16 @@ namespace AnimeStudio
                 BaseFolder = baseFolder;
                 assetsManager.Game = game;
 
-                if (game.Type.IsGISubGroup() || exportListType.HasFlag(ExportListType.JSON))
-                {
-                    var assets = new List<AssetEntry>();
-                    ForEachLoadedBundle(files, file =>
-                    {
-                        BuildCABMap(file, ref collision);
-                        BuildAssetMap(file, assets, typeFilters, nameFilters, containerFilters);
-                    });
-                    UpdateContainers(assets, game);
-                    DumpCABMap(mapName);
-                    Logger.Info($"Map build successfully !! {collision} collisions found");
-                    await ExportAssetsMap(assets, game, mapName, savePath, exportListType);
-                }
-                else
-                {
-                    // Stream asset entries while still collecting CAB map in memory (small).
-                    await Task.Run(() =>
-                    {
-                        Thread.CurrentThread.CurrentCulture = new CultureInfo("en-US");
-                        Directory.CreateDirectory(savePath);
-
-                        var entryCount = 0L;
-                        var mpOptions = MessagePackSerializerOptions.Standard;
-                        string tempEntriesPath = null;
-                        FileStream tempEntries = null;
-                        XmlWriter xmlWriter = null;
-                        string mapPath = null;
-
-                        try
-                        {
-                            if (exportListType.HasFlag(ExportListType.MessagePack))
-                            {
-                                tempEntriesPath = Path.Combine(Path.GetTempPath(), $"animestudio-map-{Guid.NewGuid():N}.tmp");
-                                tempEntries = new FileStream(tempEntriesPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 64, FileOptions.SequentialScan);
-                                mapPath = Path.Combine(savePath, $"{mapName}.map");
-                            }
-                            if (exportListType.HasFlag(ExportListType.XML))
-                            {
-                                var xmlPath = Path.Combine(savePath, $"{mapName}.xml");
-                                xmlWriter = XmlWriter.Create(xmlPath, new XmlWriterSettings { Indent = true });
-                                xmlWriter.WriteStartDocument();
-                                xmlWriter.WriteStartElement("Assets");
-                                xmlWriter.WriteAttributeString("filename", xmlPath);
-                                xmlWriter.WriteAttributeString("createdAt", DateTime.UtcNow.ToString("s"));
-                            }
-
-                            var batch = new List<AssetEntry>(256);
-                            ForEachLoadedBundle(files, file =>
-                            {
-                                BuildCABMap(file, ref collision);
-                                batch.Clear();
-                                BuildAssetMap(file, batch, typeFilters, nameFilters, containerFilters);
-                                foreach (var asset in batch)
-                                {
-                                    entryCount++;
-                                    if (tempEntries != null)
-                                    {
-                                        MessagePackSerializer.Serialize(tempEntries, asset, mpOptions);
-                                    }
-                                    if (xmlWriter != null)
-                                    {
-                                        xmlWriter.WriteStartElement("Asset");
-                                        xmlWriter.WriteElementString("Name", asset.Name);
-                                        xmlWriter.WriteElementString("Container", asset.Container);
-                                        xmlWriter.WriteStartElement("Type");
-                                        xmlWriter.WriteAttributeString("id", ((int)asset.Type).ToString());
-                                        xmlWriter.WriteValue(asset.Type.ToString());
-                                        xmlWriter.WriteEndElement();
-                                        xmlWriter.WriteElementString("PathID", asset.PathID.ToString());
-                                        xmlWriter.WriteElementString("Source", asset.Source);
-                                        xmlWriter.WriteEndElement();
-                                    }
-                                }
-                            });
-
-                            DumpCABMap(mapName);
-
-                            if (xmlWriter != null)
-                            {
-                                xmlWriter.WriteEndElement();
-                                xmlWriter.WriteEndDocument();
-                                xmlWriter.Flush();
-                            }
-
-                            if (tempEntries != null)
-                            {
-                                tempEntries.Flush();
-                                tempEntries.Dispose();
-                                tempEntries = null;
-
-                                using var output = new FileStream(mapPath, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 64);
-                                var header = new ArrayBufferWriter<byte>(16);
-                                var writer = new MessagePackWriter(header);
-                                writer.WriteArrayHeader(2);
-                                writer.Write((int)game.Type);
-                                if (entryCount > int.MaxValue)
-                                {
-                                    throw new InvalidOperationException($"Asset map has {entryCount} entries which exceeds MessagePack array limits.");
-                                }
-                                writer.WriteArrayHeader((int)entryCount);
-                                writer.Flush();
-                                output.Write(header.WrittenSpan);
-
-                                using (var input = new FileStream(tempEntriesPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 64, FileOptions.SequentialScan | FileOptions.DeleteOnClose))
-                                {
-                                    input.CopyTo(output);
-                                }
-                                tempEntriesPath = null;
-                            }
-
-                            Logger.Info($"Map build successfully !! {collision} collisions found");
-                            if (!exportListType.Equals(ExportListType.None))
-                            {
-                                Logger.Info($"Finished building AssetMap with {entryCount} assets.");
-                            }
-                        }
-                        finally
-                        {
-                            xmlWriter?.Dispose();
-                            tempEntries?.Dispose();
-                            if (tempEntriesPath != null && File.Exists(tempEntriesPath))
-                            {
-                                try { File.Delete(tempEntriesPath); } catch { /* best-effort */ }
-                            }
-                        }
-                    });
-                }
+                ForEachLoadedBundle(files, file => BuildCABMap(file, ref collision));
+                DumpCABMap(mapName);
+                Logger.Info($"CAB map built: {collision} collisions found");
             }
             catch (Exception e)
             {
-                Logger.Warning($"Map was not build, {e}");
+                Logger.Warning($"CAB map was not built, {e}");
             }
+
+            await BuildAssetMap(files, mapName, game, savePath, exportListType, typeFilters, nameFilters, containerFilters);
         }
     }
 }

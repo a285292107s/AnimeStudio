@@ -18,6 +18,7 @@ internal static class Program
         Run("install-detection", InstallDetection);
         Run("snapshot-diff", SnapshotDiffTests);
         Run("container-index", ContainerIndexTests);
+        Run("map-v2-only", MapFormatTests);
 
         Console.WriteLine();
         Console.WriteLine(_failed == 0
@@ -143,6 +144,47 @@ internal static class Program
         DiffResult baseline = SnapshotDiff.Compare(null, newSnapshot);
         Check(!baseline.HasPrevious, "baseline has no previous");
         Equal(0, baseline.TotalImageChanges, "baseline image changes");
+    }
+
+    /* ---------- 地图格式：只认 v2 紧凑地图 ---------- */
+
+    private static void MapFormatTests()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "anime-tests-" + Guid.NewGuid().ToString("N")[..8]);
+
+        try
+        {
+            Directory.CreateDirectory(root);
+
+            // 用一个「旧 v1 MessagePack 地图」的起手字节：不是 ASM2，必须被拒绝。
+            string legacy = Path.Combine(root, "legacy.map");
+            File.WriteAllBytes(legacy, [0x92, 0x00, 0x01, 0x02, 0x03, 0x04]);
+
+            Check(!AssetMapScanner.IsRawAssetMap(legacy), "v1 map is not a compact map");
+
+            bool rejected = false;
+            try
+            {
+                AssetMapScanner.Query(legacy, null, null, null, null, 10);
+            }
+            catch (InvalidDataException exception)
+            {
+                rejected = exception.Message.Contains("ASM2", StringComparison.Ordinal);
+            }
+
+            Check(rejected, "querying a v1 map asks for a v2 rebuild");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // temp cleanup only
+            }
+        }
     }
 
     /* ---------- ZZZ container index ---------- */

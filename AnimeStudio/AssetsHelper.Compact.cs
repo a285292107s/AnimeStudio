@@ -13,8 +13,7 @@ namespace AnimeStudio
 {
     /// <summary>
     /// Compact (v2) map builder: per-file entry chunks + container table + optional incremental
-    /// cache, with file-level parallelism. The legacy MessagePack writer stays in AssetsHelper.cs
-    /// for the original GUI and for <c>--map_format messagepack</c>.
+    /// cache, with file-level parallelism. v2 is the only map format the tool writes now.
     /// </summary>
     public static partial class AssetsHelper
     {
@@ -52,8 +51,6 @@ namespace AnimeStudio
 
             var totalStopwatch = Stopwatch.StartNew();
             string mapPath = Path.Combine(savePath, $"{mapName}.map");
-            bool hasFilters = !typeFilters.IsNullOrEmpty() || !nameFilters.IsNullOrEmpty() || !containerFilters.IsNullOrEmpty();
-            bool useCache = !hasFilters;
             bool hasHash = !SkipHash;
 
             List<string> filesList = PrepareInputFiles(input);
@@ -64,10 +61,13 @@ namespace AnimeStudio
                 return;
             }
 
-            string cacheRoot = Path.Combine(savePath, ".cache", SanitizeFileComponent(mapName) + ".mapcache");
-            string partsDir = useCache
-                ? Path.Combine(cacheRoot, "parts")
-                : Path.Combine(Path.GetTempPath(), $"animestudio-map-{Guid.NewGuid():N}");
+            // The cache stores already-filtered entries, so a filtered build gets its own cache
+            // folder instead of being forced into a full rebuild every time.
+            string cacheRoot = Path.Combine(
+                savePath,
+                ".cache",
+                SanitizeFileComponent(mapName) + FilterCacheSuffix(typeFilters, nameFilters, containerFilters) + ".mapcache");
+            string partsDir = Path.Combine(cacheRoot, "parts");
             Directory.CreateDirectory(partsDir);
 
             if (Profile)
@@ -79,7 +79,7 @@ namespace AnimeStudio
 
             CompactCache cache = null;
             var containers = new ContainerTable();
-            if (useCache && !ForceMapRebuild)
+            if (!ForceMapRebuild)
             {
                 cache = LoadCompactCache(cacheRoot, game.Type, hasHash, filesList.Count, out List<string> containerValues, out string cacheProblem);
                 if (cache != null)
@@ -96,7 +96,7 @@ namespace AnimeStudio
             long reusedEntries = 0;
             int reusedFiles = 0;
             long newestInputTicks = 0;
-            bool cacheUsable = useCache && cache != null && File.Exists(mapPath) && IsCompactMapFile(mapPath);
+            bool cacheUsable = cache != null && File.Exists(mapPath) && IsCompactMapFile(mapPath);
             bool allCached = cacheUsable;
 
             for (int i = 0; i < fileCount; i++)
@@ -136,7 +136,7 @@ namespace AnimeStudio
                 return;
             }
 
-            Logger.Info($"Building AssetMap ({MapFormat.Compact}): {fileCount:N0} files, " +
+            Logger.Info($"Building AssetMap (compact v2): {fileCount:N0} files, " +
                         $"{reusedFiles:N0} cached, {pending.Count:N0} to scan, {Math.Max(1, ThreadCount)} worker(s)...");
 
             long totalEntries = reusedEntries;
@@ -242,7 +242,6 @@ namespace AnimeStudio
 
                 if (firstError != null)
                 {
-                    CleanupParts(partsDir, partPaths, useCache);
                     throw new InvalidOperationException($"AssetMap build failed: {firstError.Message}", firstError);
                 }
 
@@ -313,24 +312,16 @@ namespace AnimeStudio
                         $"({mapBytes / (1024.0 * 1024.0):N1} MB, {totalStopwatch.Elapsed.TotalSeconds:F1} s).");
             LogProfileBreakdown(totalEntries);
 
-            if (useCache)
+            try
             {
-                try
-                {
-                    containers.Save(Path.Combine(cacheRoot, "table.bin"));
-                    SaveCompactCache(cacheRoot, cache, game.Type, hasHash, totalEntries, filesList, counts, partPaths);
-                    Logger.Info($"Incremental cache updated: {reusedFiles:N0} reused, {pending.Count:N0} scanned, " +
-                                $"cache at {cacheRoot}");
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-                {
-                    Logger.Warning($"Could not update the map cache: {exception.Message}");
-                }
+                containers.Save(Path.Combine(cacheRoot, "table.bin"));
+                SaveCompactCache(cacheRoot, cache, game.Type, hasHash, totalEntries, filesList, counts, partPaths);
+                Logger.Info($"Incremental cache updated: {reusedFiles:N0} reused, {pending.Count:N0} scanned, " +
+                            $"cache at {cacheRoot}");
             }
-            else
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                try { Directory.Delete(partsDir, recursive: true); } catch { /* best-effort */ }
-                Logger.Info("Type/name/container filters active: incremental cache is disabled for this build.");
+                Logger.Warning($"Could not update the map cache: {exception.Message}");
             }
         }
 
@@ -447,6 +438,48 @@ namespace AnimeStudio
             }
 
             return string.IsNullOrWhiteSpace(value) ? "map" : value;
+        }
+
+        /// <summary>
+        /// Fingerprint of everything that changes what a cached part file contains: the active
+        /// type/name/container filters plus the loaded container-path table, which is baked into
+        /// the container column. Each combination therefore gets its own cache folder.
+        /// </summary>
+        private static string FilterCacheSuffix(ClassIDType[] typeFilters, Regex[] nameFilters, Regex[] containerFilters)
+        {
+            bool hasTypes = typeFilters is { Length: > 0 };
+            bool hasNames = nameFilters is { Length: > 0 };
+            bool hasContainers = containerFilters is { Length: > 0 };
+            int pathCount = Paths?.Count ?? 0;
+            if (!hasTypes && !hasNames && !hasContainers && pathCount == 0)
+            {
+                return string.Empty;
+            }
+
+            var signature = new StringBuilder();
+            if (pathCount > 0)
+            {
+                // ZZZ hash → path tables: a different table resolves different containers.
+                signature.Append("p:").Append(pathCount).Append('|');
+            }
+
+            if (hasTypes)
+            {
+                signature.Append("t:").AppendJoin(',', typeFilters.OrderBy(x => (int)x).Select(x => x.ToString())).Append('|');
+            }
+
+            if (hasNames)
+            {
+                signature.Append("n:").AppendJoin('\u0001', nameFilters.Select(x => x.ToString())).Append('|');
+            }
+
+            if (hasContainers)
+            {
+                signature.Append("c:").AppendJoin('\u0001', containerFilters.Select(x => x.ToString())).Append('|');
+            }
+
+            byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(signature.ToString()));
+            return "." + Convert.ToHexString(hash)[..8].ToLowerInvariant();
         }
 
         private static bool IsCompactMapFile(string path)
@@ -576,15 +609,6 @@ namespace AnimeStudio
             }
         }
 
-        private static void CleanupParts(string partsDir, string[] partPaths, bool useCache)
-        {
-            if (useCache)
-            {
-                return; // keep valid cached parts; the next build validates them
-            }
-
-            try { Directory.Delete(partsDir, recursive: true); } catch { /* best-effort */ }
-        }
 
         private static void ResetProfileCounters()
         {

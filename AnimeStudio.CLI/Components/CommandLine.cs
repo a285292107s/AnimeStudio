@@ -39,7 +39,6 @@ namespace AnimeStudio.CLI
             rootCommand.Options.Add(optionsBinder.ContainerIndex);
             rootCommand.Options.Add(optionsBinder.DummyDllFolder);
             rootCommand.Options.Add(optionsBinder.NoHash);
-            rootCommand.Options.Add(optionsBinder.MapFormat);
             rootCommand.Options.Add(optionsBinder.Threads);
             rootCommand.Options.Add(optionsBinder.MapFull);
             rootCommand.Arguments.Add(optionsBinder.Input);
@@ -70,7 +69,6 @@ namespace AnimeStudio.CLI
         public FileInfo ContainerIndex { get; set; }
         public DirectoryInfo DummyDllFolder { get; set; }
         public bool NoHash { get; set; }
-        public MapFormat MapFormat { get; set; }
         public int Threads { get; set; }
         public bool MapFull { get; set; }
         public FileInfo Input { get; set; }
@@ -97,7 +95,6 @@ namespace AnimeStudio.CLI
         public readonly Option<FileInfo> ContainerIndex;
         public readonly Option<DirectoryInfo> DummyDllFolder;
         public readonly Option<bool> NoHash;
-        public readonly Option<MapFormat> MapFormat;
         public readonly Option<int> Threads;
         public readonly Option<bool> MapFull;
         public readonly Argument<FileInfo> Input;
@@ -183,10 +180,6 @@ namespace AnimeStudio.CLI
             {
                 Description = "Skip per-asset hashes while building an AssetMap (faster, smaller map; the hash column stays empty)."
             };
-            MapFormat = new Option<MapFormat>("--map_format")
-            {
-                Description = "AssetMap layout for --map_type MessagePack: Compact (v2, default) or MessagePack (legacy)."
-            };
             Threads = new Option<int>("--threads")
             {
                 Description = "Worker threads for the compact map builder (1 = sequential). Default: 4."
@@ -250,7 +243,6 @@ namespace AnimeStudio.CLI
             AssetExportType.DefaultValueFactory = _ => ExportType.Convert;
             MapOp.DefaultValueFactory = _ => MapOpType.None;
             MapType.DefaultValueFactory = _ => ExportListType.XML;
-            MapFormat.DefaultValueFactory = _ => AnimeStudio.MapFormat.Compact;
             Threads.DefaultValueFactory = _ => 4;
         }
         
@@ -372,7 +364,6 @@ namespace AnimeStudio.CLI
             ContainerIndex = parseResult.GetValue(ContainerIndex),
             DummyDllFolder = parseResult.GetValue(DummyDllFolder),
             NoHash = parseResult.GetValue(NoHash),
-            MapFormat = parseResult.GetValue(MapFormat),
             Threads = parseResult.GetValue(Threads),
             MapFull = parseResult.GetValue(MapFull),
             Input = parseResult.GetRequiredValue(Input),

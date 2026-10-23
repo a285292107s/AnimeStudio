@@ -31,10 +31,10 @@ AnimeStudio 打开 Unity 打好的资源包（bundle / CAB），把里面能认�
 | 能力 | 说明 | 在哪用 |
 | --- | --- | --- |
 | UI 图库 | 只负责预览：160 px 缩略图按需生成、按容器分类、按名称搜索、每页 120 张；大图查看器支持 ← → 翻页、滚轮缩放、1:1、拖拽平移 | Host |
-| 筛选导出 | 「资源浏览」按名称、容器、来源、类型查索引，整行勾选（Shift 连选、全选本页），再导出所选或全部匹配 | Host |
-| 资源索引 | 建 `AssetMap`（紧凑 v2 / MessagePack），并行扫描，只重扫变化的包 | Host / CLI |
+| 筛选导出 | 「资源浏览」按名称、容器、来源查索引，整行勾选（Shift 连选、全选本页），再导出所选或全部匹配 | Host |
+| 资源索引 | 建 `AssetMap`（紧凑 v2，只收 `Sprite` + `Texture2D`），并行扫描，只重扫变化的包 | Host / CLI |
 | ZZZ 容器路径 | 绝区零的容器是 xxhash64；下载 Eleiyas 的 Z3 索引后显示成 `Assets/NapResources/…` 真实路径，导出也按路径分组 | Host / CLI |
-| 资源浏览 | 按名称、容器、来源、类型直接查索引；可把名称或容器条件交给 CLI 导出 | Host |
+| 资源浏览 | 按名称、容器、来源直接查索引；可把名称或容器条件交给 CLI 导出 | Host |
 | 快照对比 | 导出后自动和上一份输出比对：新增、消失、尺寸或文件大小变化的图片 | Host |
 | 每游戏独立输出 | 星铁、绝区零各一条输出目录，互不覆盖；文件夹改名后自动跟随 | Host |
 | 经典界面 | 全量加载、类型过滤、12 个导出入口、图片 / 音频 / 模型 / 字体 / 文本预览、Asset Browser 双地图对比 | GUI |
@@ -92,7 +92,7 @@ dist/
 1. **确认游戏目录。** 首次启动会自动从 miHoYo Launcher 的注册表、Program Files 和各盘常见目录里找星穹铁道、绝区零；找不到就点「更换」手动选。首次向导三步走：游戏目录 → 输出目录 → 建索引。
 2. **给每款游戏指定输出目录。** 设置里 SR 和 ZZZ 各有一条路径，改一款不影响另一款；切换游戏时图库、索引和快照一起切过去。输出文件夹在资源管理器里改名也没关系，Host 会凭目录里的 `.anime-studio.json` 标记找回来。
 3. **重建索引。** 索引写在 `<输出目录>\index\<索引名>.map`（默认 `index\game.map`）。首次几分钟（4 线程），之后只重扫变化的包，通常几秒。索引只记录「哪个资源在哪个 block 里」，不导出文件。
-4. **筛选要导出的资源。** 「资源浏览」默认按「图像（Sprite + Texture2D）」列出前 300 条，可以按名称、容器、来源再收窄。整行点一下就是勾选，Shift 连选一段，表头是全选本页；右侧「详情」面板会变成购物车，列出勾中的名称。
+4. **筛选要导出的资源。** 索引里只有贴图（`Sprite` + `Texture2D`），所以「资源浏览」列出来的就是全部候选，可以按名称、容器、来源再收窄，默认只看有路径的那批。整行点一下就是勾选，Shift 连选一段，表头是全选本页；右侧「详情」面板会变成购物车，列出勾中的名称。
 5. **导出 PNG。** 点「导出所选 PNG」（单次最多 400 个名称，自动去重），或者用「导出全部匹配」把当前过滤条件直接交给 CLI。导出按容器路径分组，同名资源不会互相覆盖；进度、ETA 和取消都在侧栏与「日志」里。
 6. **在图库里看结果。** 「UI 图库」只负责预览：按容器分类、按名称搜索、每页 120 张，缩略图缓存在 `.cache\thumbs`。点任意一张进大图：← → 连着翻（翻到页边界会自动取下一页）、滚轮缩放、双击 1:1、拖拽平移，Esc 退出。缩略图有 S / M / L 三档。
 7. **对比变化。** 每次导出结束会自动和上一份快照比对图片的新增、消失和尺寸变化；「设置 → 对比上次快照」可以随时手动重跑。
@@ -100,7 +100,7 @@ dist/
 几个补充：
 
 - 「导出全部匹配」需要至少一个名称或容器条件（来源过滤暂不支持导出），避免把整张地图都导出去。
-- **绝区零的容器是哈希。** ZZZ 的 bundle 清单里存的是 xxhash64，没有索引时资源浏览只能显示一串数字。设置里点「下载」会拉取 [Eleiyas 的 Z3 索引](https://github.com/Eleiyas/Z3-Asset-Index)（约 81 MB，存到 `%LOCALAPPDATA%\AnimeStudio\Maps`），之后容器显示成 `Assets/NapResources/UI/…` 这样的路径，`--containers` 和按容器导出也一起生效；**不用重建地图**。索引只覆盖约三分之二的条目，剩下的仍显示哈希——所以资源浏览默认勾着「只看有路径的」，取消勾选才会列出 `resources.assets` 里那些没有容器、或者哈希没被收录的内置贴图。
+- **绝区零的容器是哈希。** ZZZ 的 bundle 清单里存的是 xxhash64，没有索引时容器只能显示成一串数字。设置里点「下载」会拉取 [Eleiyas 的 Z3 索引](https://github.com/Eleiyas/Z3-Asset-Index)（约 81 MB，存到 `%LOCALAPPDATA%\AnimeStudio\Maps`），建索引时它会把哈希换成人能看的路径（`Assets/NapResources/UI/…`）直接写进地图，`--containers` 和按容器导出也一起生效；已经建好的哈希地图也不必重建，资源浏览在查询时会顺手还原。图片条目里约 71% 能换出路径，剩下 29% 是上游索引也没收录的哈希——所以资源浏览默认勾着「只看有路径的」，取消勾选才会连这些数字容器和 `resources.assets` 里那些没有容器的内置贴图一起列出来。
 - 设置保存在 `%LOCALAPPDATA%\AnimeStudio\host.settings.json`，崩溃日志是同目录的 `host-crash.log`。
 - 图库只扫输出目录里的 PNG。Host 不再有文本页，文本表和配置表的专用提取已经从本 fork 移除；通用 `TextAsset` 仍然可以当普通资产导出。
 - Host 目前只自动识别星穹铁道和绝区零；其它游戏用 GUI / CLI 的 `--game` 指定。
@@ -136,8 +136,7 @@ AnimeStudio.CLI.exe "D:\Games\StarRail\StarRail_Data\StreamingAssets" "D:\out\sr
 | `--export_type` | `Convert` / `Raw` / `Dump` / `JSON` | `Convert` | 转换导出 / 原始字节 / 字段文本 / JSON |
 | `--group_assets` | `ByType` / `ByContainer` / `BySource` / `None` | `ByType` | 输出目录布局 |
 | `--map_op` | `None` / `AssetMap` / `CABMap` / `Both` / `All`，可叠加 `Load` | `None` | 建图；`AssetMap,Load` 表示读图并按图导出 |
-| `--map_type` | `MessagePack` / `XML` / `JSON` | `XML` | 建图格式；Host 用 `MessagePack` |
-| `--map_format` | `Compact` / `MessagePack` | `Compact` | 紧凑 v2，还是旧版 MessagePack 布局 |
+| `--map_type` | `MessagePack` / `XML` / `JSON` | `XML` | 建图格式；`MessagePack` 就是紧凑 v2 的 `.map`，Host 用这个 |
 | `--map_name` | 名称或路径 | `assets_map` | 地图文件名 / 读取路径 |
 | `--threads` | 整数 | `4` | 建图并行线程数，`1` 为顺序 |
 | `--map_full` | 开关 | 关 | 忽略增量缓存，全量重扫 |
@@ -151,7 +150,8 @@ AnimeStudio.CLI.exe "D:\Games\StarRail\StarRail_Data\StreamingAssets" "D:\out\sr
 
 - 导出目标目录里已存在的同名文件会被跳过，不覆盖。
 - 退出码：`0` 成功，`1` 游戏名无效，`2` 运行异常，`3` 建图失败。
-- 建图增量缓存位于 `<输出目录>\.cache\<地图名>.mapcache\`；加 `--map_full` 会忽略它。
+- `.map` 现在只有紧凑 v2 一种布局（文件头 `ASM2`），旧的 v1 MessagePack 地图不再读；读到旧图会提示重新建索引。`--container_index` 可以让绝区零的容器在**查询时**显示成真实路径，不用重建地图。
+- 建图增量缓存位于 `<输出目录>\.cache\<地图名>[.过滤指纹].mapcache\`，每个过滤组合一个目录；加 `--map_full` 会忽略它。
 
 ## 经典 GUI
 

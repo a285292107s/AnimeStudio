@@ -8,23 +8,15 @@ using System.Text.RegularExpressions;
 namespace AnimeStudio
 {
     /// <summary>
-    /// Streaming matcher for AssetMap files.
+    /// Streaming matcher for the compact v2 AssetMap (<see cref="AssetMapV2"/>) written under the
+    /// game's output folder. v1 (raw MessagePack) maps are no longer read.
     ///
-    /// Two layouts are supported:
-    /// <list type="bullet">
-    /// <item>the original uncompressed MessagePack map (<c>[GameType, AssetEntry[]]</c>)</item>
-    /// <item>the compact v2 map written by the CLI/Host (<see cref="AssetMapV2"/>)</item>
-    /// </list>
-    /// A full Honkai: Star Rail map has ~7.3M entries and used to be ~2GB, and deserializing it
-    /// into <see cref="AssetEntry"/> objects costs roughly 4GB of RAM. This scanner never
-    /// materialises the entries: it walks the format, skips string payloads and only converts
-    /// the few fields that actually match, so peak memory stays flat.
+    /// A full map holds millions of entries; deserializing them into <see cref="AssetEntry"/>
+    /// objects costs gigabytes of RAM, so this scanner never materialises the entries: it walks
+    /// the format, skips string payloads and only converts the few fields that actually match.
     /// </summary>
     public static class AssetMapScanner
     {
-        /// <summary>Tag byte of a 2-element MessagePack array (raw, uncompressed map).</summary>
-        private const byte FixArray2 = 0x92;
-
         private const int MaxStringLength = 16 * 1024 * 1024;
 
         public sealed class ScanResult
@@ -119,7 +111,7 @@ namespace AnimeStudio
 
                 if (containerLength > 0)
                 {
-                    if (requireResolved && ContainerIndex.Resolve(utf8.GetString(containerBuffer, 0, containerLength)) is null)
+                    if (requireResolved && !IsDisplayableContainer(utf8.GetString(containerBuffer, 0, containerLength)))
                     {
                         return;
                     }
@@ -173,7 +165,7 @@ namespace AnimeStudio
             return result;
         }
 
-        /// <summary>True when the file is a raw (v1 MessagePack) or compact (v2) map the streaming scanner can read.</summary>
+        /// <summary>True when the file is a compact (v2) map this scanner can read.</summary>
         public static bool IsRawAssetMap(string path)
         {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
@@ -188,11 +180,6 @@ namespace AnimeStudio
             if (originalPosition >= 0)
             {
                 stream.Position = originalPosition;
-            }
-
-            if (read >= 1 && magic[0] == FixArray2)
-            {
-                return true;
             }
 
             return read == 4 && magic.SequenceEqual(AssetMapV2.MagicBytes);
@@ -296,56 +283,14 @@ namespace AnimeStudio
             int read = stream.Read(magic);
             stream.Position = 0;
 
-            if (read == 4 && magic.SequenceEqual(AssetMapV2.MagicBytes))
+            if (read != 4 || !magic.SequenceEqual(AssetMapV2.MagicBytes))
             {
-                ForEachEntryCompact(stream, out consumedBytes, out totalEntries, visitor);
-                return;
+                // v1 (MessagePack) maps are no longer supported: the tool always writes and
+                // reads the compact v2 format under the output folder now.
+                throw new InvalidDataException("只支持 v2 紧凑地图（ASM2），请重新建索引。");
             }
 
-            ForEachEntryMessagePack(stream, out consumedBytes, out totalEntries, visitor);
-        }
-
-        private static void ForEachEntryMessagePack(Stream stream, out long consumedBytes, out long totalEntries, EntryVisitor visitor)
-        {
-            var reader = new BufferedStreamReader(stream);
-
-            byte rootTag = reader.ReadByte();
-            if (rootTag != FixArray2)
-            {
-                throw new InvalidDataException(
-                    $"Not a raw (uncompressed) AssetMap: first byte is 0x{rootTag:x2}, expected 0x{FixArray2:x2}.");
-            }
-
-            _ = BufferReadInteger(reader);          // GameType
-            long entryCount = BufferReadArrayHeader(reader);
-
-            byte[] nameBuffer = new byte[256];
-            byte[] containerBuffer = new byte[256];
-            byte[] sourceBuffer = new byte[256];
-            byte[] hashBuffer = new byte[16];
-
-            for (long index = 0; index < entryCount; index++)
-            {
-                byte entryTag = reader.ReadByte();
-                if (entryTag != 0x97)
-                {
-                    throw new InvalidDataException(
-                        $"Corrupt AssetMap: entry {index:N0} starts with 0x{entryTag:x2}, expected 0x97.");
-                }
-
-                int nameLength = BufferReadString(reader, ref nameBuffer);
-                int containerLength = BufferReadString(reader, ref containerBuffer);
-                int sourceLength = BufferReadString(reader, ref sourceBuffer);
-                long pathId = BufferReadInteger(reader);          // PathID
-                long type = BufferReadInteger(reader);
-                int hashLength = BufferReadString(reader, ref hashBuffer);   // Hash (string or nil)
-                _ = BufferReadInteger(reader);      // Offset
-
-                visitor((ClassIDType)type, pathId, nameBuffer, nameLength, containerBuffer, containerLength, sourceBuffer, sourceLength, hashBuffer, hashLength);
-            }
-
-            consumedBytes = reader.ConsumedBytes;
-            totalEntries = entryCount;
+            ForEachEntryCompact(stream, out consumedBytes, out totalEntries, visitor);
         }
 
         /// <summary>Reads the compact v2 map (<see cref="AssetMapV2"/>), grouped by source file.</summary>
@@ -524,124 +469,44 @@ namespace AnimeStudio
             return ContainerIndex.Resolve(container) ?? container;
         }
 
-        /// <summary>Reads one MessagePack string into a reusable buffer. Returns its length, or -1 for nil.</summary>
-        private static int BufferReadString(BufferedStreamReader reader, ref byte[] buffer)
+        /// <summary>
+        /// True when the container column already carries something displayable: a map built with
+        /// the ZZZ hash index bakes in the resolved path, one built without it keeps the bare id,
+        /// which resolves through the index at query time. About 29% of ZZZ image containers are
+        /// hashes the index cannot resolve, and those are what "只看有路径的" hides.
+        /// </summary>
+        private static bool IsDisplayableContainer(string container)
         {
-            byte tag = reader.ReadByte();
+            if (container.Length == 0)
+            {
+                return false;
+            }
 
-            int length;
-            if (tag == 0xC0)
+            if (ContainerIndex.Resolve(container) is not null)
             {
-                return -1;
+                return true;
             }
-            else if (tag <= 0xBF && tag >= 0xA0)
+
+            return !IsContainerHash(container);
+        }
+
+        /// <summary>A container id that never resolved: all digits, long enough to be a hash.</summary>
+        private static bool IsContainerHash(string value)
+        {
+            if (value.Length < 10)
             {
-                length = tag & 0x1F;
+                return false;
             }
-            else
+
+            foreach (char character in value)
             {
-                switch (tag)
+                if (character is < '0' or > '9')
                 {
-                    case 0xD9:
-                        length = reader.ReadByte();
-                        break;
-                    case 0xDA:
-                        length = (reader.ReadByte() << 8) | reader.ReadByte();
-                        break;
-                    case 0xDB:
-                        length = (reader.ReadByte() << 24) | (reader.ReadByte() << 16) | (reader.ReadByte() << 8) | reader.ReadByte();
-                        break;
-                    default:
-                        throw new InvalidDataException($"Unexpected MessagePack string tag 0x{tag:x2}.");
+                    return false;
                 }
             }
 
-            if (length < 0 || length > MaxStringLength)
-            {
-                throw new InvalidDataException($"Unreasonable AssetMap string length {length}.");
-            }
-
-            if (buffer.Length < length)
-            {
-                buffer = new byte[Math.Max(length, buffer.Length * 2)];
-            }
-
-            reader.ReadBytes(buffer.AsSpan(0, length));
-            return length;
-        }
-
-        private static long BufferReadArrayHeader(BufferedStreamReader reader)
-        {
-            byte tag = reader.ReadByte();
-
-            if (tag >= 0x90 && tag <= 0x9F)
-            {
-                return tag & 0x0F;
-            }
-
-            switch (tag)
-            {
-                case 0xDC:
-                    return (reader.ReadByte() << 8) | reader.ReadByte();
-                case 0xDD:
-                    return ((long)reader.ReadByte() << 24) | ((long)reader.ReadByte() << 16) |
-                           ((long)reader.ReadByte() << 8) | reader.ReadByte();
-                default:
-                    throw new InvalidDataException($"Unexpected MessagePack array tag 0x{tag:x2}.");
-            }
-        }
-
-        private static long BufferReadInteger(BufferedStreamReader reader)
-        {
-            byte tag = reader.ReadByte();
-
-            if (tag <= 0x7F)
-            {
-                return tag;
-            }
-
-            if (tag >= 0xE0)
-            {
-                return (sbyte)tag;
-            }
-
-            switch (tag)
-            {
-                case 0xC0: return 0;                                            // nil => 0
-                case 0xC2: return 0;                                            // false
-                case 0xC3: return 1;                                            // true
-                case 0xCC: return reader.ReadByte();
-                case 0xCD: return (reader.ReadByte() << 8) | reader.ReadByte();
-                case 0xCE: return ((long)reader.ReadByte() << 24) | ((long)reader.ReadByte() << 16) |
-                                  ((long)reader.ReadByte() << 8) | reader.ReadByte();
-                case 0xCF:
-                    {
-                        long value = 0;
-                        for (int i = 0; i < 8; i++)
-                        {
-                            value = (value << 8) | reader.ReadByte();
-                        }
-
-                        return value;
-                    }
-                case 0xD0: return (sbyte)reader.ReadByte();
-                case 0xD1: return (short)((reader.ReadByte() << 8) | reader.ReadByte());
-                case 0xD2:
-                    return (int)(((uint)reader.ReadByte() << 24) | ((uint)reader.ReadByte() << 16) |
-                                 ((uint)reader.ReadByte() << 8) | reader.ReadByte());
-                case 0xD3:
-                    {
-                        long value = 0;
-                        for (int i = 0; i < 8; i++)
-                        {
-                            value = (value << 8) | reader.ReadByte();
-                        }
-
-                        return value;
-                    }
-                default:
-                    throw new InvalidDataException($"Unexpected MessagePack integer tag 0x{tag:x2}.");
-            }
+            return true;
         }
 
         private sealed class BufferedStreamReader

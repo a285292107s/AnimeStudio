@@ -5,16 +5,6 @@ using System.Text;
 
 namespace AnimeStudio
 {
-    /// <summary>On-disk AssetMap layout selected by the map builder.</summary>
-    public enum MapFormat
-    {
-        /// <summary>Legacy MessagePack [gameType, entry[]] stream (the original tool's format).</summary>
-        MessagePack,
-
-        /// <summary>Compact v2: container table + per-file grouped varint entries.</summary>
-        Compact,
-    }
-
     /// <summary>
     /// Compact AssetMap v2.
     ///

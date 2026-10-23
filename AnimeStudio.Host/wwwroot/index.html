@@ -47,7 +47,6 @@
           <span class="indexfacts__key">地图</span>
           <b class="indexfacts__val" id="indexSize">—</b>
           <span class="indexfacts__badge" id="indexFormat">—</span>
-          <span class="indexfacts__badge indexfacts__badge--warn" id="indexManual" hidden>手动指定</span>
         </div>
         <div class="indexfacts__row">
           <span class="indexfacts__key">增量缓存</span>
@@ -72,7 +71,7 @@
       </div>
 
       <button class="btn btn--accent" id="buildIndex">重建索引</button>
-      <p class="hint">索引只记录「哪个资源在哪个 block 里」，不导出文件。首次几分钟（4 线程），之后游戏更新只重扫变化的包，通常几秒完成。</p>
+      <p class="hint">索引只收贴图（Sprite + Texture2D），只记录「哪个资源在哪个 block 里」，不导出文件。首次几分钟（4 线程），之后游戏更新只重扫变化的包，通常几秒完成。</p>
     </section>
 
     <section class="rail__block">
@@ -124,21 +123,7 @@
         <label class="field field--inline"><span>名称</span><input id="assetName" type="search" placeholder="名称包含…" autocomplete="off"></label>
         <label class="field field--inline"><span>容器</span><input id="assetContainer" type="search" placeholder="如 spriteoutput/ui/fonts" autocomplete="off"></label>
         <label class="field field--inline"><span>来源</span><input id="assetSource" type="search" placeholder="block / bundle 文件名" autocomplete="off"></label>
-        <label class="field field--inline">
-          <span>类型</span>
-          <select id="assetType">
-            <option value="image" selected>图像（Sprite + Texture2D）</option>
-            <option value="all">全部类型</option>
-            <option value="Sprite">Sprite</option>
-            <option value="Texture2D">Texture2D</option>
-            <option value="TextAsset">TextAsset</option>
-            <option value="Font">Font</option>
-            <option value="Mesh">Mesh</option>
-            <option value="AudioClip">AudioClip</option>
-            <option value="MonoBehaviour">MonoBehaviour</option>
-          </select>
-        </label>
-        <label class="field field--inline field--check" title="绝区零的容器是哈希，索引未收录的条目只能看到数字；勾上就只列出能还原成路径的">
+        <label class="field field--inline field--check" title="索引只建贴图（Sprite + Texture2D），索引未收录的哈希只能看到数字；勾上就只列出能还原成路径的">
           <input id="assetOnlyContainers" type="checkbox" checked>
           <span>只看有路径的</span>
         </label>
@@ -264,13 +249,9 @@
     </label>
 
     <label class="field field--stack">
-      <span>地图路径 <em>AssetMap</em></span>
-      <input id="settingsMapPath" type="text" spellcheck="false" placeholder="默认：输出目录/index/game.map">
-    </label>
-
-    <label class="field field--stack">
       <span>索引名 <em>地图文件名</em></span>
       <input id="settingsIndexName" type="text" spellcheck="false" placeholder="game">
+      <span class="hint">地图固定写在 <code>&lt;输出目录&gt;\index\&lt;索引名&gt;.map</code>，只支持紧凑 v2 格式。</span>
     </label>
 
     <div class="field field--stack">

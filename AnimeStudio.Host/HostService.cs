@@ -518,11 +518,6 @@ internal sealed class HostService
                 Settings.CliPath = Blank(cliPath);
             }
 
-            if (TryGetOptionalString(settings, "mapPath", out string? mapPath))
-            {
-                Profile.MapPath = Blank(mapPath);
-            }
-
             if (TryGetOptionalString(settings, "indexName", out string? indexName) && !string.IsNullOrWhiteSpace(indexName))
             {
                 Profile.IndexName = indexName.Trim();
@@ -645,12 +640,6 @@ internal sealed class HostService
             if (!OutputLocator.TryFindRenamed(configured, profile.OutputId, game, out string moved))
             {
                 continue;
-            }
-
-            if (!string.IsNullOrWhiteSpace(profile.MapPath) && IsPathUnder(profile.MapPath, configured))
-            {
-                // The map usually lives in <output>\index; carry it over to the new folder.
-                profile.MapPath = moved + profile.MapPath![configured.Length..];
             }
 
             profile.OutputDirectory = moved;
@@ -1099,9 +1088,9 @@ internal sealed class HostService
                 {
                     string indexDirectory = Path.Combine(GameRoot, "index");
                     string mapName = string.IsNullOrWhiteSpace(Profile.IndexName) ? "game" : Profile.IndexName;
-                    Profile.MapPath = Path.Combine(indexDirectory, mapName + ".map");
-                    SettingsStore.Save(Settings);
 
+                    // The map only ever holds image assets: the resource browser cannot filter by
+                    // any other type, and this keeps rebuilds small and fast.
                     return
                     [
                         gameDataPath, indexDirectory,
@@ -1109,6 +1098,7 @@ internal sealed class HostService
                         "--map_op", "AssetMap",
                         "--map_type", "MessagePack",
                         "--map_name", mapName,
+                        "--types", "Sprite", "Texture2D",
                         .. ContainerIndexArguments(),
                     ];
                 }
@@ -1191,8 +1181,7 @@ internal sealed class HostService
 
                 break;
             case "index":
-                Profile.MapPath = MapPath();
-                SettingsStore.Save(Settings);
+                // The map path is derived from the output folder + index name, nothing to persist.
                 break;
         }
     }
@@ -1567,13 +1556,12 @@ internal sealed class HostService
     /// <summary>Diagnostics from the service into the UI log.</summary>
     public void LogInfo(string message) => Send(new { type = "log", level = "info", message });
 
+    /// <summary>
+    /// The only map the host reads is the one under the game's output folder
+    /// (<c>output\index\&lt;name&gt;.map</c>); external map paths are not supported.
+    /// </summary>
     public string MapPath()
     {
-        if (!string.IsNullOrWhiteSpace(Profile.MapPath))
-        {
-            return Profile.MapPath!;
-        }
-
         if (GameRoot.Length == 0)
         {
             return string.Empty;
@@ -1732,7 +1720,7 @@ internal sealed class HostService
         }
     }
 
-    /// <summary>"compact" (v2) / "messagepack" (v1) / "unknown"; read from the map's magic bytes.</summary>
+    /// <summary>"compact" (v2) or "unknown"; read from the map's magic bytes.</summary>
     private static string DetectMapFormat(string? path)
     {
         try
@@ -1745,12 +1733,7 @@ internal sealed class HostService
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16);
             Span<byte> magic = stackalloc byte[4];
             int read = stream.Read(magic);
-            if (read == 4 && magic.SequenceEqual(AssetMapV2.MagicBytes))
-            {
-                return "compact";
-            }
-
-            return read > 0 && magic[0] == 0x92 ? "messagepack" : "unknown";
+            return read == 4 && magic.SequenceEqual(AssetMapV2.MagicBytes) ? "compact" : "unknown";
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -1759,29 +1742,34 @@ internal sealed class HostService
     }
 
     /// <summary>
-    /// Size of the incremental map cache that sits next to the map file
-    /// (<c>&lt;index dir&gt;\.cache\&lt;name&gt;.mapcache</c>). Zero for maps built before the cache existed.
+    /// Size of the incremental map caches that sit next to the map file
+    /// (<c>&lt;index dir&gt;\.cache\&lt;name&gt;.mapcache*</c>). Filtered builds keep their own
+    /// cache folder, so every matching folder is counted. Zero for maps built without a cache.
     /// </summary>
     private static long ComputeIndexCacheBytes(string? mapPath)
     {
         try
         {
-            string? directory = IndexCacheDirectory(mapPath);
-            if (directory is null || !Directory.Exists(directory))
+            string? cacheRoot = IndexCacheRoot(mapPath);
+            string? prefix = IndexCachePrefix(mapPath);
+            if (cacheRoot is null || prefix is null || !Directory.Exists(cacheRoot))
             {
                 return 0;
             }
 
             long total = 0;
-            foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            foreach (string directory in Directory.EnumerateDirectories(cacheRoot, prefix + "*.mapcache"))
             {
-                try
+                foreach (string file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
                 {
-                    total += new FileInfo(file).Length;
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-                {
-                    // The cache can be rewritten while we count; skip the flaky entry.
+                    try
+                    {
+                        total += new FileInfo(file).Length;
+                    }
+                    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                    {
+                        // The cache can be rewritten while we count; skip the flaky entry.
+                    }
                 }
             }
 
@@ -1793,20 +1781,25 @@ internal sealed class HostService
         }
     }
 
-    private static string? IndexCacheDirectory(string? mapPath)
+    private static string? IndexCacheRoot(string? mapPath)
     {
-        if (string.IsNullOrWhiteSpace(mapPath))
-        {
-            return null;
-        }
-
         string? directory = Path.GetDirectoryName(mapPath);
         if (string.IsNullOrEmpty(directory))
         {
             return null;
         }
 
-        return Path.Combine(directory, ".cache", Path.GetFileNameWithoutExtension(mapPath) + ".mapcache");
+        return Path.Combine(directory, ".cache");
+    }
+
+    private static string? IndexCachePrefix(string? mapPath)
+    {
+        if (string.IsNullOrWhiteSpace(mapPath))
+        {
+            return null;
+        }
+
+        return Path.GetFileNameWithoutExtension(mapPath);
     }
 
     private static int? GetInt(JsonElement element, string property)
