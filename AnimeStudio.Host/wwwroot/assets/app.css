@@ -1011,6 +1011,21 @@ button { font: inherit; color: inherit; }
 
 .welcome__actions-left { display: flex; gap: 8px; }
 
+/* 每款游戏独立的输出目录 */
+.outputs { display: grid; gap: 10px; }
+.outputs__row { display: grid; gap: 5px; }
+.outputs__row .pathrow { display: flex; gap: 6px; }
+.outputs__row .pathrow input { flex: 1; }
+.outputs__name { font-size: 11px; color: var(--muted); }
+.outputs__row.is-current .outputs__name { color: var(--fg); }
+.outputs__row.is-current .outputs__name em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--accent);
+  margin-left: 6px;
+}
+
 
 /* 资源浏览（Asset Browser 等价物） */
 .toolbar--wrap {

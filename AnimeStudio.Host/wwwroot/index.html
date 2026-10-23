@@ -239,14 +239,26 @@
       <input id="settingsIndexName" type="text" spellcheck="false" placeholder="game">
     </label>
 
-    <label class="field field--stack">
-      <span>输出目录 <em id="settingsOutputLabel">—</em></span>
-      <div class="pathrow">
-        <input id="settingsOutputPath" type="text" spellcheck="false" placeholder=" — ">
-        <button class="btn btn--xs btn--ghost" id="settingsPickOutput">选择</button>
+    <div class="field field--stack">
+      <span>输出目录 <em>每款游戏各一个</em></span>
+      <div class="outputs" id="settingsOutputs">
+        <div class="outputs__row" data-game="SR">
+          <span class="outputs__name">星穹铁道 <em data-current hidden>当前游戏</em></span>
+          <div class="pathrow">
+            <input id="settingsOutputSR" type="text" spellcheck="false" placeholder="选择星穹铁道的导出目录">
+            <button class="btn btn--xs btn--ghost" data-pick-output="SR">选择</button>
+          </div>
+        </div>
+        <div class="outputs__row" data-game="ZZZ">
+          <span class="outputs__name">绝区零 <em data-current hidden>当前游戏</em></span>
+          <div class="pathrow">
+            <input id="settingsOutputZZZ" type="text" spellcheck="false" placeholder="选择绝区零的导出目录">
+            <button class="btn btn--xs btn--ghost" data-pick-output="ZZZ">选择</button>
+          </div>
+        </div>
       </div>
-    </label>
-    <p class="hint">两个游戏各用各的目录：切换游戏时会自动换成它自己的输出路径，互不覆盖。</p>
+    </div>
+    <p class="hint">改哪一款就只影响哪一款，不会覆盖另一款；切换游戏时这里的路径和左侧「输出」会一起刷新。</p>
 
     <div class="welcome__actions welcome__actions--split">
       <span class="welcome__actions-left">

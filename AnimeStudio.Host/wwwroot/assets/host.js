@@ -159,6 +159,9 @@
         APP.state.imageFilter = 'all';
         applySettings(message.settings, message.state);
         resetOutputViews();
+        if ($('#settings') && !$('#settings').hidden) {
+          fillSettingsForm();
+        }
         APP.toast(`已切换到 ${nameOfGame(message.settings.game)}`);
         break;
       case 'map.stats.pending':
@@ -339,6 +342,7 @@
   /// <summary>First-run guidance: only when something is still missing, and only until dismissed.</summary>
   function fillSettingsForm() {
     const settings = state.settings || {};
+    const outputs = settings.outputDirectories || {};
     const put = (selector, value) => {
       const input = $(selector);
       if (input) {
@@ -351,6 +355,18 @@
     put('#settingsMapPath', settings.mapPath);
     put('#settingsIndexName', settings.indexName);
     put('#settingsOutputPath', settings.outputDirectory);
+    put('#settingsOutputSR', outputs.SR || (settings.game === 'SR' ? settings.outputDirectory : ''));
+    put('#settingsOutputZZZ', outputs.ZZZ || (settings.game === 'ZZZ' ? settings.outputDirectory : ''));
+
+    // Mark the game the rest of the dialog (game dir, map, index) belongs to.
+    document.querySelectorAll('#settingsOutputs .outputs__row').forEach((row) => {
+      const current = row.dataset.game === settings.game;
+      row.classList.toggle('is-current', current);
+      const badge = row.querySelector('[data-current]');
+      if (badge) {
+        badge.hidden = !current;
+      }
+    });
 
     const label = $('#settingsGameLabel');
     if (label) {
@@ -892,6 +908,13 @@
       return;
     }
 
+    const pickOutput = hit('[data-pick-output]');
+    if (pickOutput) {
+      stop(event);
+      call('settings.pick', { target: 'output', game: pickOutput.dataset.pickOutput });
+      return;
+    }
+
     if (hit('#settingsOpenOutput')) {
       stop(event);
       call('open.folder');
@@ -919,13 +942,24 @@
 
     if (hit('#settingsSave')) {
       stop(event);
+      const outputs = {
+        SR: $('#settingsOutputSR')?.value?.trim() || '',
+        ZZZ: $('#settingsOutputZZZ')?.value?.trim() || '',
+      };
+      const single = $('#settingsOutputPath');
+      if (single) {
+        // Old cached markup: one field for whichever game is active.
+        outputs[state.settings.game] = single.value.trim();
+      }
+
       call('settings.save', {
         settings: {
           gameDataPath: $('#settingsGamePath').value,
           cliPath: $('#settingsCliPath').value,
           mapPath: $('#settingsMapPath').value,
           indexName: $('#settingsIndexName').value,
-          outputDirectory: $('#settingsOutputPath').value,
+          outputDirectories: outputs,
+          outputDirectory: outputs[state.settings.game] || '',
         },
       });
       closeSettings();

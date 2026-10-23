@@ -359,7 +359,7 @@ internal sealed class HostService
     private void HandlePick(JsonElement root)
     {
         string target = GetString(root, "target") ?? "game";
-        string game = Settings.Game;
+        string game = GetString(root, "game") ?? Settings.Game;
         string? picked = _pickFolder(target switch
         {
             "game" => "选择游戏的 <Game>_Data 目录",
@@ -378,7 +378,7 @@ internal sealed class HostService
                 Profile.DataPath = picked;
                 break;
             case "output":
-                ApplyOutputDirectory(picked);
+                ApplyOutputDirectory(game, picked);
                 break;
             default:
                 return;
@@ -388,8 +388,11 @@ internal sealed class HostService
         SendSettingsChanged();
     }
 
-    /// <summary>Points the current game at its own output directory (each game keeps its own).</summary>
-    private void ApplyOutputDirectory(string directory)
+    /// <summary>
+    /// Points one game at its own output directory (the other game keeps its own path).
+    /// Only the active game's caches need to be dropped and reloaded.
+    /// </summary>
+    private void ApplyOutputDirectory(string game, string directory)
     {
         try
         {
@@ -400,10 +403,31 @@ internal sealed class HostService
             Send(new { type = "log", level = "warn", message = $"[host] 无法创建输出目录：{exception.Message}" });
         }
 
-        Profile.OutputDirectory = directory;
-        ResetGameOutputs();
-        _mapOutputFolder(GameRoot);
-        LogInfo($"[host] {GameLabel(Settings.Game)} 导出目录 → {GameRoot}");
+        GameProfile profile = GetProfile(game);
+        profile.OutputDirectory = directory;
+        _mapOutputFolder(directory);
+
+        if (string.Equals(game, Settings.Game, StringComparison.OrdinalIgnoreCase))
+        {
+            ResetGameOutputs();
+            QueueMapStats(force: true);
+        }
+
+        LogInfo($"[host] {GameLabel(game)} 导出目录 → {directory}");
+    }
+
+    private GameProfile GetProfile(string game)
+    {
+        if (!Settings.Profiles.TryGetValue(game, out GameProfile? profile))
+        {
+            profile = new GameProfile
+            {
+                OutputDirectory = SettingsStore.LegacyGameRoot(Settings, game),
+            };
+            Settings.Profiles[game] = profile;
+        }
+
+        return profile;
     }
 
     /// <summary>Drops everything that was read from the previous output directory.</summary>
@@ -456,14 +480,41 @@ internal sealed class HostService
                 Profile.IndexName = indexName.Trim();
             }
 
-            if (TryGetOptionalString(settings, "outputDirectory", out string? output))
+            // New UI sends both games' paths at once; older markup sends a single path that
+            // belongs to the active game.
+            if (settings.TryGetProperty("outputDirectories", out JsonElement outputDirectories) &&
+                outputDirectories.ValueKind == JsonValueKind.Object)
+            {
+                foreach (JsonProperty entry in outputDirectories.EnumerateObject())
+                {
+                    if (entry.Value.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
+                    string gameKey = entry.Name;
+                    string trimmed = entry.Value.GetString()?.Trim() ?? string.Empty;
+                    if (trimmed.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    string existing = GetProfile(gameKey).OutputDirectory?.Trim() ?? string.Empty;
+                    if (string.Equals(trimmed, existing, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    ApplyOutputDirectory(gameKey, trimmed);
+                }
+            }
+            else if (TryGetOptionalString(settings, "outputDirectory", out string? output))
             {
                 string trimmed = output?.Trim() ?? string.Empty;
                 if (trimmed.Length > 0 &&
                     !string.Equals(trimmed, GameRoot, StringComparison.OrdinalIgnoreCase))
                 {
-                    ApplyOutputDirectory(trimmed);
-                    QueueMapStats(force: true);
+                    ApplyOutputDirectory(Settings.Game, trimmed);
                 }
             }
         }
