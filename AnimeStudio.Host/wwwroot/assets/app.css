@@ -1199,6 +1199,18 @@ button { font: inherit; color: inherit; }
   min-width: 120px;
 }
 .toolbar--wrap .field--inline input:focus { border-color: var(--accent); }
+.toolbar--wrap .field--check { gap: 6px; color: var(--muted); cursor: pointer; }
+.toolbar--wrap .field--check input {
+  width: 13px;
+  height: 13px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 
 .asset-table { flex: 1; overflow: auto; min-height: 0; }
 .asset-table__empty { padding: 40px 24px; color: var(--faint); font-size: 12px; line-height: 1.8; }
@@ -1247,6 +1259,8 @@ button { font: inherit; color: inherit; }
 .asset-check input { width: 13px; height: 13px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .asset-row__name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-row__container { color: var(--muted); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-row__container.is-empty { color: #4a4a4a; }
+.asset-row__container.is-hash { color: var(--faint); }
 .asset-row__type { color: var(--accent); font-family: var(--mono); font-size: 10.5px; }
 .asset-row__source, .asset-row__pathid { color: var(--faint); font-family: var(--mono); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 

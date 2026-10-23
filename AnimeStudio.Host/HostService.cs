@@ -1291,9 +1291,16 @@ internal sealed class HostService
             Regex[] sourceFilter = BuildRegexFilters(GetString(root, "source") ?? string.Empty, rawRegex);
             ClassIDType[] typeFilter = ParseTypes(GetStringArray(root, "types"));
             int limit = Math.Clamp(GetInt(root, "limit") ?? 300, 1, 1000);
+            bool onlyContainers = root.ValueKind == JsonValueKind.Object &&
+                                  root.TryGetProperty("onlyContainers", out JsonElement onlyElement) &&
+                                  onlyElement.ValueKind == JsonValueKind.True;
+            bool onlyResolved = root.ValueKind == JsonValueKind.Object &&
+                                root.TryGetProperty("onlyResolved", out JsonElement resolvedElement) &&
+                                resolvedElement.ValueKind == JsonValueKind.True;
 
             AssetMapScanner.QueryResult result = AssetMapScanner.Query(
-                mapPath, typeFilter, nameFilter, containerFilter, sourceFilter, limit);
+                mapPath, typeFilter, nameFilter, containerFilter, sourceFilter, limit,
+                requireContainer: onlyContainers, requireResolved: onlyResolved);
 
             Send(new
             {
@@ -1301,6 +1308,9 @@ internal sealed class HostService
                 requestId,
                 total = result.MatchedEntries,
                 available = result.TotalEntries,
+                withContainer = result.MatchedWithContainer,
+                onlyContainers,
+                onlyResolved,
                 sources = result.Sources.Count,
                 truncated = result.Truncated,
                 elapsedMs = (long)result.Elapsed.TotalMilliseconds,

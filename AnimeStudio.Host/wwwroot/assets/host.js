@@ -1161,6 +1161,8 @@
       container: $('#assetContainer')?.value || '',
       source: $('#assetSource')?.value || '',
       types: assetTypes(),
+      // 「只看有路径的」：ZZZ 的哈希未收录时只剩数字，默认不列出来。
+      onlyResolved: $('#assetOnlyContainers') ? $('#assetOnlyContainers').checked : true,
       limit: 300,
     };
   }
@@ -1271,7 +1273,10 @@
     const count = $('#assetCount');
     if (count) {
       const truncated = response.truncated ? `（仅显示前 ${fmt(items.length)} 条）` : '';
-      count.textContent = `匹配 ${fmt(response.total)} / 共 ${fmt(response.available)}${truncated} · ${fmt(response.sources)} 个来源 · ${response.elapsedMs} ms`;
+      const withContainer = response.onlyResolved
+        ? ''
+        : `（其中 ${fmt(response.withContainer ?? 0)} 条有容器）`;
+      count.textContent = `匹配 ${fmt(response.total)} / 共 ${fmt(response.available)}${withContainer}${truncated} · ${fmt(response.sources)} 个来源 · ${response.elapsedMs} ms`;
     }
 
     const list = $('#assetList');
@@ -1291,7 +1296,8 @@
     state.assetAnchor = -1;
 
     if (state.assetRows.length === 0) {
-      list.innerHTML = '<div class="asset-table__empty">没有匹配的条目。容器支持子串，例如 <code>spriteoutput/ui/fonts</code>。</div>';
+      const hiddenNote = response.onlyResolved ? '（当前只看能还原出路径的条目，可取消勾选看全部）' : '';
+      list.innerHTML = `<div class="asset-table__empty">没有匹配的条目${hiddenNote}。容器支持子串，例如 <code>spriteoutput/ui/fonts</code>。</div>`;
       updateAssetSelectionUi();
       return;
     }
@@ -1304,10 +1310,13 @@
     const rows = state.assetRows
       .map((row, index) => {
         const selected = state.assetSelected.has(row.key);
+        const container = row.container
+          ? `<span class="asset-row__container ${/^\d{10,}$/.test(row.container) ? 'is-hash' : ''}" title="${/^\d{10,}$/.test(row.container) ? '索引未收录这个哈希' : ''}">${escapeHtml(row.container)}</span>`
+          : '<span class="asset-row__container is-empty">无容器</span>';
         return `<div class="asset-row ${selected ? 'is-selected' : ''}" data-index="${index}" title="${escapeHtml(row.sourcePath)}">
           <span class="asset-check"><input type="checkbox" ${selected ? 'checked' : ''} tabindex="-1"></span>
           <span class="asset-row__name">${escapeHtml(row.name || '—')}</span>
-          <span class="asset-row__container">${escapeHtml(row.container || '—')}</span>
+          ${container}
           <span class="asset-row__type">${escapeHtml(row.type)}</span>
           <span class="asset-row__source">${escapeHtml(row.source)}</span>
           <span class="asset-row__pathid">${escapeHtml(row.pathId)}</span>
@@ -1329,7 +1338,8 @@
     }
 
     const hasHashes = state.assetRows.some((row) => /^\d{10,}$/.test(row.container));
-    if (hasHashes && !state.containerIndex?.loaded) {
+    const filtered = Boolean($('#assetOnlyContainers')?.checked);
+    if (!state.containerIndex?.loaded && (hasHashes || filtered)) {
       hint.textContent = '容器只显示哈希：到「设置」下载绝区零容器索引即可显示路径（不用重建地图）';
       hint.classList.add('is-warn');
     } else {
@@ -1647,6 +1657,10 @@
       if (type) {
         type.value = 'image';
       }
+      const only = $('#assetOnlyContainers');
+      if (only) {
+        only.checked = true;
+      }
       searchAssets(assetFilters());
       return;
     }
@@ -1844,6 +1858,16 @@
     state.timer = setTimeout(() => {
       loadImages(value, 0, state.category);
     }, 300);
+  }, true);
+
+  // 「只看有容器的」是筛选条件的一部分，切换后立刻重查。
+  document.addEventListener('change', (event) => {
+    if (event.target.id !== 'assetOnlyContainers') {
+      return;
+    }
+
+    event.stopImmediatePropagation();
+    searchAssets(assetFilters());
   }, true);
 
   function stop(event) {

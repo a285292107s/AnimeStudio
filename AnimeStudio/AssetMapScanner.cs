@@ -72,6 +72,9 @@ namespace AnimeStudio
 
             public long MatchedEntries { get; set; }
 
+            /// <summary>Matches that sit in a bundle manifest, i.e. that have a container path.</summary>
+            public long MatchedWithContainer { get; set; }
+
             public bool Truncated { get; set; }
 
             public TimeSpan Elapsed { get; set; }
@@ -84,6 +87,9 @@ namespace AnimeStudio
         /// <summary>
         /// Asset Browser query: filters by name/container/source/type while streaming the map,
         /// returning at most <paramref name="limit"/> entries plus the real match count.
+        /// <paramref name="requireContainer"/> drops entries with no container path (ZZZ's
+        /// <c>resources.assets</c> textures and other built-ins), which otherwise fill the first
+        /// page with rows that cannot be grouped or filtered by container.
         /// </summary>
         public static QueryResult Query(
             string path,
@@ -91,13 +97,16 @@ namespace AnimeStudio
             Regex[] nameFilter,
             Regex[] containerFilter,
             Regex[] sourceFilter,
-            int limit)
+            int limit,
+            bool requireContainer = false,
+            bool requireResolved = false)
         {
             var stopwatch = Stopwatch.StartNew();
             var result = new QueryResult();
             var items = result.Items;
             var sources = result.Sources;
             long matched = 0;
+            long withContainer = 0;
             var utf8 = Encoding.UTF8;
 
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20, FileOptions.SequentialScan);
@@ -108,14 +117,37 @@ namespace AnimeStudio
                     return;
                 }
 
+                if (containerLength > 0)
+                {
+                    if (requireResolved && ContainerIndex.Resolve(utf8.GetString(containerBuffer, 0, containerLength)) is null)
+                    {
+                        return;
+                    }
+
+                    if (!MatchesAnyContainer(containerFilter, containerBuffer, containerLength))
+                    {
+                        return;
+                    }
+                }
+                else if (requireContainer || requireResolved || (containerFilter is { Length: > 0 }))
+                {
+                    // A container filter can never match "no container", and the UI can hide
+                    // containerless rows entirely (ZZZ maps are a third built-in assets).
+                    return;
+                }
+
                 if (!MatchesAnyRegex(nameFilter, nameBuffer, nameLength) ||
-                    !MatchesAnyContainer(containerFilter, containerBuffer, containerLength) ||
                     !MatchesAnyRegex(sourceFilter, sourceBuffer, sourceLength))
                 {
                     return;
                 }
 
                 matched++;
+                if (containerLength > 0)
+                {
+                    withContainer++;
+                }
+
                 if (sourceLength > 0)
                 {
                     sources.Add(utf8.GetString(sourceBuffer, 0, sourceLength));
@@ -135,6 +167,7 @@ namespace AnimeStudio
 
             result.TotalEntries = totalEntries;
             result.MatchedEntries = matched;
+            result.MatchedWithContainer = withContainer;
             result.Truncated = matched > items.Count;
             result.Elapsed = stopwatch.Elapsed;
             return result;
