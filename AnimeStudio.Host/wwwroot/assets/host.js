@@ -32,19 +32,15 @@
   };
   const GAME_NAMES = { SR: '星穹铁道', ZZZ: '绝区零' };
   const nameOfGame = (id) => GAME_NAMES[id] || id || '—';
-  const TEXT_PAGE = 200;
   const IMAGE_PAGE = 120;
 
   const pending = new Map();
   const state = {
     settings: {},
-    locale: '',
     taskRunning: false,
     timer: null,
     hostState: null,
     mapStats: null,
-    textOffset: 0,
-    textTotal: 0,
     imageOffset: 0,
     imageTotal: 0,
     imageNames: new Map(),
@@ -201,7 +197,6 @@
         break;
       case 'game.switched':
         state.mapStats = null;
-        state.locale = '';
         state.category = 'all';
         APP.state.imageFilter = 'all';
         applySettings(message.settings, message.state);
@@ -229,10 +224,6 @@
     $('#modeChip').textContent = 'WebView2 宿主 · 真实数据';
     state.settings = message.settings || {};
 
-    // Leave the locale empty: the host picks zh-CN when installed, instead of the
-    // alphabetically first language (which is "ja" for ZZZ).
-    state.locale = '';
-
     // 两个游戏现在都走同一套真实管线，去掉 mock 里的「待验证」标记。
     (APP.state.data.games || []).forEach((game) => {
       if (game.status === 'probe') {
@@ -255,18 +246,12 @@
     APP.state.data.stats.uiSprites = 0;
     APP.renderImageGrid();
 
-    if (message.state?.textTables?.length) {
-      loadText('');
-    } else {
-      APP.state.text = [];
-      APP.state.data.stats.textEntries = 0;
-      APP.renderTextList();
-    }
-
     // Images are scanned lazily: a fresh output folder can hold tens of thousands of PNGs,
     // and scanning it on startup / output change made the window briefly unresponsive.
     setImagesDirty();
-    ensureConfigPreset();
+    if (document.querySelector('.tab.is-active')?.dataset.tab === 'images') {
+      ensureImagesLoaded();
+    }
 
     APP.pushLog(`宿主已连接${message.host?.cliPath ? '：' + message.host.cliPath : '（未找到 CLI）'}`);
     if (!message.host?.cliPath) {
@@ -289,22 +274,16 @@
     }
   }
 
-  /// <summary>Clears text/images read from the previous output and asks for the new ones.</summary>
+  /// <summary>Clears images read from the previous output and asks for the new ones.</summary>
   function resetOutputViews() {
-    APP.state.text = [];
     APP.state.images = [];
-    APP.state.data.stats.textEntries = 0;
     APP.state.data.stats.uiSprites = 0;
-    state.textOffset = 0;
     state.imageOffset = 0;
-    state.textTotal = 0;
     state.imageTotal = 0;
     state.category = 'all';
     APP.state.imageFilter = 'all';
     APP.state.data.containers = [];
-    APP.renderTextList();
     APP.renderImageGrid();
-    loadText('');
 
     // Do not scan the new output folder unless the gallery is actually open.
     setImagesDirty();
@@ -366,26 +345,6 @@
     }
 
     // Update the numbers first, then render once, then override the mock labels.
-    if (current.textTables?.length) {
-      APP.state.data.languages = current.textTables
-        .map((table) => ({
-          code: table.locale,
-          folder: table.locale,
-          label: table.locale,
-          entries: table.count,
-        }))
-        .sort((left, right) => {
-          const rank = (code) => (code === 'zh-CN' ? 0 : code === 'zh-TW' ? 1 : code === 'ja' ? 2 : 3);
-          return rank(left.code) - rank(right.code);
-        });
-
-      // 「文本条目」应表示当前语言的数量，而不是所有语言相加。
-      const activeTable = current.textTables.find((table) => table.locale === state.locale) || current.textTables[0];
-      APP.state.data.stats.textEntries = activeTable?.count ?? 0;
-    } else if (Array.isArray(current.textTables)) {
-      APP.state.data.stats.textEntries = 0;
-    }
-
     if (typeof current.images === 'number') {
       APP.state.data.stats.uiSprites = current.images;
     }
@@ -405,15 +364,8 @@
   function paintChrome() {
     APP.renderGames();
     APP.renderRail();
-    ensureConfigPreset();
     APP.renderTabs();
-    APP.renderLanguageSelect();
     APP.renderInspector();
-
-    const languageSelect = $('#textLang');
-    if (languageSelect && state.locale) {
-      languageSelect.value = state.locale;
-    }
 
     $('#gamePath').textContent = state.settings.gameDataPath || '未选择游戏目录（点「更换」）';
     $('#gamePath').title = state.settings.gameDataPath || '';
@@ -520,32 +472,11 @@
 
     put(0, mapStats ? fmt(mapStats.totalEntries) : '—');
     put(1, mapStats ? fmt(mapStats.sourceFiles) : '—');
-    put(4, mapStats ? fmt(mapStats.sprites) : '—');
-    put(5, mapStats ? fmt(mapStats.textures) : '—');
-
-    const configCount = $('#configPresetCount');
-    if (configCount) {
-      const count = state.hostState?.configTables || 0;
-      configCount.textContent = count > 0 ? `${fmt(count)} 张表` : '未导出';
-    }
+    put(2, mapStats ? fmt(state.hostState?.images ?? 0) : '—');
+    put(3, mapStats ? fmt(mapStats.sprites) : '—');
+    put(4, mapStats ? fmt(mapStats.textures) : '—');
 
     updateWizard();
-  }
-
-  /// <summary>Adds the config-table preset that only the host can run.</summary>
-  function ensureConfigPreset() {
-    const list = $('#presets');
-    if (!list || list.querySelector('[data-preset="config"]')) {
-      return;
-    }
-
-    const item = document.createElement('li');
-    item.className = 'preset';
-    item.innerHTML =
-      '<div class="preset__main"><span class="preset__name">配置表 · ExcelOutput JSON</span>' +
-      '<span class="preset__count" id="configPresetCount">未导出</span></div>' +
-      '<button class="btn btn--xs" data-preset="config">提取</button>';
-    list.appendChild(item);
   }
 
   /// <summary>First-run guidance: only when something is still missing, and only until dismissed.</summary>
@@ -565,7 +496,6 @@
     put('#settingsOutputPath', settings.outputDirectory);
     put('#settingsOutputSR', outputPathFor('SR'));
     put('#settingsOutputZZZ', outputPathFor('ZZZ'));
-    put('#settingsConfigSource', settings.configTableSource);
 
     // Mark the game the rest of the dialog (game dir, map, index) belongs to.
     document.querySelectorAll('#settingsOutputs .outputs__row').forEach((row) => {
@@ -630,49 +560,6 @@
   }
 
   /* ---------- 真实数据加载 ---------- */
-
-  async function loadText(query, offset = 0) {
-    const response = await call('text.query', {
-      locale: state.locale,
-      query: query || '',
-      offset: Math.max(0, offset),
-      limit: TEXT_PAGE,
-    });
-
-    if (!response || response.type !== 'text.page') {
-      return;
-    }
-
-    if (response.locales?.length) {
-      state.locale = response.locale || response.locales[0];
-      const select = $('#textLang');
-      if (select) {
-        select.value = state.locale;
-      }
-    }
-
-    state.textOffset = response.offset || 0;
-    state.textTotal = response.total || 0;
-
-    APP.state.text = (response.rows || []).map(([hash, text]) => ({
-      hash,
-      text,
-      source: response.locale,
-    }));
-
-    // Keep the rail/tab number at the full size of the active language, even while searching.
-    const activeTable = (state.hostState?.textTables || []).find((table) => table.locale === response.locale);
-    APP.state.data.stats.textEntries = activeTable?.count ?? response.total ?? 0;
-    paintChrome();
-    APP.renderTextList();
-
-    const scroll = $('#textScroll');
-    if (scroll) {
-      scroll.scrollTop = 0;
-    }
-
-    updatePagers();
-  }
 
   async function loadImages(query, offset = 0, category = 'all') {
     state.imagesLoading = true;
@@ -740,19 +627,6 @@
   }
 
   function updatePagers() {
-    const textPager = $('#textPager');
-    if (textPager) {
-      const show = state.textTotal > TEXT_PAGE;
-      textPager.hidden = !show;
-      if (show) {
-        const from = state.textOffset + 1;
-        const to = Math.min(state.textTotal, state.textOffset + TEXT_PAGE);
-        $('#textPageInfo').textContent = `${fmt(from)}-${fmt(to)} / ${fmt(state.textTotal)}`;
-        textPager.querySelector('[data-page="prev"]').disabled = state.textOffset <= 0;
-        textPager.querySelector('[data-page="next"]').disabled = state.textOffset + TEXT_PAGE >= state.textTotal;
-      }
-    }
-
     const imagePager = $('#imagePager');
     if (imagePager) {
       const show = state.imageTotal > IMAGE_PAGE;
@@ -785,13 +659,7 @@
   }
 
   function label(kind) {
-    return kind === 'index'
-      ? '建索引'
-      : kind === 'text'
-        ? '文本提取'
-        : kind === 'config'
-          ? '配置表导出'
-          : 'UI 图导出';
+    return kind === 'index' ? '建索引' : 'UI 图导出';
   }
 
   function onTaskStarted(message) {
@@ -1076,9 +944,7 @@
 
     applySettings(null, message.state);
 
-    if (message.kind === 'text') {
-      loadText('');
-    } else if (message.kind === 'images') {
+    if (message.kind === 'images') {
       setImagesDirty();
       if (document.querySelector('.tab.is-active')?.dataset.tab === 'images') {
         ensureImagesLoaded();
@@ -1087,33 +953,22 @@
   }
 
   function onDiff(message) {
-    const text = message.text || {};
     const images = message.images || {};
 
     if (!message.hasPrevious) {
-      const version = message.version ? `（版本 ${message.version}）` : '';
-      APP.pushLog(`已记录基线快照${version}，下次导出后可查看变化`);
+      APP.pushLog('已记录基线快照，下次导出后可查看变化');
       APP.toast('已记录基线快照');
       return;
     }
 
     const parts = [];
-    if (text.added || text.removed || text.changed) {
-      parts.push(`文本 +${text.added} −${text.removed} ~${text.changed}`);
-    }
     if (images.added || images.removed || images.changed) {
       parts.push(`图片 +${images.added} −${images.removed} ~${images.changed}`);
     }
 
     const summary = parts.length ? parts.join('，') : '与上次快照一致';
     APP.toast(summary);
-    APP.pushLog(`版本对比 ${message.previousVersion || '上次'} → ${message.version || '当前'}：${summary}`);
-
-    (text.samples || []).slice(0, 10).forEach((sample) => {
-      const tag = sample.newText == null ? '−' : sample.oldText == null ? '+' : '~';
-      const value = sample.newText || sample.oldText || '';
-      APP.pushLog(`${tag} 文本 ${sample.locale} ${sample.key}${value ? ' = ' + String(value).slice(0, 40) : ''}`);
-    });
+    APP.pushLog(`版本对比：${summary}`);
 
     (images.samples || []).slice(0, 10).forEach((sample) => {
       const tag = sample.kind === 'added' ? '+' : sample.kind === 'removed' ? '−' : '~';
@@ -1286,12 +1141,6 @@
       return;
     }
 
-    if (hit('#settingsPickConfigSource')) {
-      stop(event);
-      call('settings.pick', { target: 'config' });
-      return;
-    }
-
     const pickOutput = hit('[data-pick-output]');
     if (pickOutput) {
       stop(event);
@@ -1342,7 +1191,6 @@
           cliPath: $('#settingsCliPath').value,
           mapPath: $('#settingsMapPath').value,
           indexName: $('#settingsIndexName').value,
-          configTableSource: $('#settingsConfigSource')?.value || '',
           outputDirectories: outputs,
           outputDirectory: outputs[state.settings.game] || '',
         },
@@ -1387,17 +1235,11 @@
       return;
     }
 
-    const pageButton = event.target.closest('#textPager [data-page], #imagePager [data-page]');
+    const pageButton = event.target.closest('#imagePager [data-page]');
     if (pageButton) {
       stop(event);
-      const isTextPager = pageButton.closest('#textPager') !== null;
       const step = pageButton.dataset.page === 'next' ? 1 : -1;
-
-      if (isTextPager) {
-        loadText($('#textSearch').value || '', Math.max(0, state.textOffset + step * TEXT_PAGE));
-      } else {
-        loadImages($('#imageSearch').value || '', Math.max(0, state.imageOffset + step * IMAGE_PAGE), state.category);
-      }
+      loadImages($('#imageSearch').value || '', Math.max(0, state.imageOffset + step * IMAGE_PAGE), state.category);
       return;
     }
 
@@ -1438,17 +1280,13 @@
     if (preset) {
       stop(event);
       const action = preset.dataset.preset;
-      if (action === 'text') {
-        runTask('text');
-      } else if (action === 'images') {
+      if (action === 'images') {
         if (APP.state.gameId === 'ZZZ') {
           APP.pushLog('绝区零的容器是数字 ID，没有 spriteoutput/ui 路径；先导出全部 Sprite（44,661 个，耗时较长）');
           runTask('images', { types: ['Sprite'] });
         } else {
           runTask('images', { containers: ['spriteoutput/ui'] });
         }
-      } else if (action === 'config') {
-        runTask('config');
       } else {
         APP.switchTab('images');
         ensureImagesLoaded();
@@ -1503,30 +1341,17 @@
   }, true);
 
   document.addEventListener('input', (event) => {
-    if (event.target.id !== 'textSearch' && event.target.id !== 'imageSearch') {
+    if (event.target.id !== 'imageSearch') {
       return;
     }
 
     event.stopImmediatePropagation();
     clearTimeout(state.timer);
 
-    const isText = event.target.id === 'textSearch';
     const value = event.target.value;
-
     state.timer = setTimeout(() => {
-      if (isText) {
-        loadText(value);
-      } else {
-        loadImages(value, 0, state.category);
-      }
+      loadImages(value, 0, state.category);
     }, 300);
-  }, true);
-
-  document.addEventListener('change', (event) => {
-    if (event.target.id === 'textLang') {
-      state.locale = event.target.value;
-      loadText('');
-    }
   }, true);
 
   function stop(event) {
@@ -1537,7 +1362,6 @@
   // 调试/自动化入口：CDP 探针可以用它触发真实任务与查询。
   window.HOST = {
     runTask,
-    loadText,
     loadImages,
     call,
     state,

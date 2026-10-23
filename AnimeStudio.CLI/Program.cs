@@ -68,56 +68,6 @@ namespace AnimeStudio.CLI
                 AssetsHelper.Profile = Environment.GetEnvironmentVariable("ANIMESTUDIO_MAP_PROFILE") == "1";
                 AssetsHelper.SetUnityVersion(o.UnityVersion);
 
-                if (o.ConfigTables != null)
-                {
-                    // Client config tables (skills, avatars, items …) are exported as JSON; the
-                    // source is a StarRailData-style dump directory (ExcelOutput/*.json), which
-                    // keeps the output format identical to what wiki/data tools consume.
-                    var configOptions = new AnimeStudio.Application.ConfigTables.ConfigTableExtractOptions
-                    {
-                        Filters = (o.ConfigNames ?? Array.Empty<System.Text.RegularExpressions.Regex>())
-                            .Select(static regex => regex.ToString())
-                            .ToArray(),
-                    };
-
-                    var configResult = AnimeStudio.Application.ConfigTables.ConfigTableExporter.Extract(
-                        o.ConfigTables.FullName,
-                        o.Output.FullName,
-                        configOptions,
-                        message => Logger.Info(message));
-
-                    ExitCode = configResult.Tables.Count > 0 ? 0 : 4;
-                    return;
-                }
-
-                if (o.ExtractTextMap)
-                {
-                    // Text extraction is independent of the Unity asset export pipeline.
-                    bool isZzz = game.Type.IsZZZ() || game.Type.IsZZZCB1() || game.Type.IsZZZCB2();
-                    if (isZzz)
-                    {
-                        ExitCode = ZzzTextCommand.Run(
-                            o.Input.FullName,
-                            o.Output.FullName,
-                            o.Languages,
-                            message => Logger.Info(message));
-                        return;
-                    }
-
-                    var textMapOptions = new AnimeStudio.Application.TextMap.TextMapExtractOptions
-                    {
-                        Languages = o.Languages,
-                        IncludeEmptyStrings = false,
-                    };
-
-                    ExitCode = AnimeStudio.Application.TextMap.TextMapCommand.Run(
-                        o.Input.FullName,
-                        o.Output.FullName,
-                        textMapOptions,
-                        message => Logger.Info(message));
-                    return;
-                }
-
                 TypeFlags.SetTypes(JsonConvert.DeserializeObject<Dictionary<ClassIDType, (bool, bool)>>(Settings.Default.types));
 
                 var classTypeFilter = Array.Empty<ClassIDType>();

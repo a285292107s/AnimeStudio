@@ -37,10 +37,6 @@ namespace AnimeStudio.CLI
             rootCommand.Options.Add(optionsBinder.Key);
             rootCommand.Options.Add(optionsBinder.AIFile);
             rootCommand.Options.Add(optionsBinder.DummyDllFolder);
-            rootCommand.Options.Add(optionsBinder.ExtractTextMap);
-            rootCommand.Options.Add(optionsBinder.ConfigTables);
-            rootCommand.Options.Add(optionsBinder.ConfigNames);
-            rootCommand.Options.Add(optionsBinder.Languages);
             rootCommand.Options.Add(optionsBinder.NoHash);
             rootCommand.Options.Add(optionsBinder.MapFormat);
             rootCommand.Options.Add(optionsBinder.Threads);
@@ -71,14 +67,10 @@ namespace AnimeStudio.CLI
         public byte Key { get; set; }
         public FileInfo AIFile { get; set; }
         public DirectoryInfo DummyDllFolder { get; set; }
-        public bool ExtractTextMap { get; set; }
-        public DirectoryInfo ConfigTables { get; set; }
-        public Regex[] ConfigNames { get; set; }
         public bool NoHash { get; set; }
         public MapFormat MapFormat { get; set; }
         public int Threads { get; set; }
         public bool MapFull { get; set; }
-        public string[] Languages { get; set; }
         public FileInfo Input { get; set; }
         public DirectoryInfo Output { get; set; }
     }
@@ -101,14 +93,10 @@ namespace AnimeStudio.CLI
         public readonly Option<byte> Key;
         public readonly Option<FileInfo> AIFile;
         public readonly Option<DirectoryInfo> DummyDllFolder;
-        public readonly Option<bool> ExtractTextMap;
-        public readonly Option<DirectoryInfo> ConfigTables;
-        public readonly Option<Regex[]> ConfigNames;
         public readonly Option<bool> NoHash;
         public readonly Option<MapFormat> MapFormat;
         public readonly Option<int> Threads;
         public readonly Option<bool> MapFull;
-        public readonly Option<string[]> Languages;
         public readonly Argument<FileInfo> Input;
         public readonly Argument<DirectoryInfo> Output;
 
@@ -184,21 +172,6 @@ namespace AnimeStudio.CLI
             {
                 Description = "Specify DummyDll path."
             };
-            ExtractTextMap = new Option<bool>("--textmap")
-            {
-                Description = "Extract localized TextMap tables from DesignData packs (no Unity bundle parsing)."
-            };
-            ConfigTables = new Option<DirectoryInfo>("--config_tables")
-            {
-                Description = "Export StarRailData-style config tables (ExcelOutput/*.json) as JSON into <output>/config.",
-                CustomParser = result => result.Tokens.Count == 0 ? null : new DirectoryInfo(result.Tokens[0].Value)
-            };
-            ConfigNames = new Option<Regex[]>("--config_names")
-            {
-                Description = "Only export config tables whose name matches these regexes.",
-                AllowMultipleArgumentsPerToken = true,
-                CustomParser = ParseRegexFilter
-            };
             NoHash = new Option<bool>("--no_hash")
             {
                 Description = "Skip per-asset hashes while building an AssetMap (faster, smaller map; the hash column stays empty)."
@@ -214,12 +187,6 @@ namespace AnimeStudio.CLI
             MapFull = new Option<bool>("--map_full")
             {
                 Description = "Ignore the incremental map cache and re-scan every input file."
-            };
-            Languages = new Option<string[]>("--lang")
-            {
-                Description = "Locale(s) to extract with --textmap, e.g. zh-CN. Default: every installed language.",
-                AllowMultipleArgumentsPerToken = true,
-                HelpName = "zh-CN|en|ja|.."
             };
             Input = new Argument<FileInfo>("input_path")
             {
@@ -277,7 +244,6 @@ namespace AnimeStudio.CLI
             MapType.DefaultValueFactory = _ => ExportListType.XML;
             MapFormat.DefaultValueFactory = _ => AnimeStudio.MapFormat.Compact;
             Threads.DefaultValueFactory = _ => 4;
-            Languages.DefaultValueFactory = _ => Array.Empty<string>();
         }
         
         public byte ParseKey(string value)
@@ -396,14 +362,10 @@ namespace AnimeStudio.CLI
             Key = parseResult.GetValue(Key),
             AIFile = parseResult.GetValue(AIFile),
             DummyDllFolder = parseResult.GetValue(DummyDllFolder),
-            ExtractTextMap = parseResult.GetValue(ExtractTextMap),
-            ConfigTables = parseResult.GetValue(ConfigTables),
-            ConfigNames = parseResult.GetValue(ConfigNames),
             NoHash = parseResult.GetValue(NoHash),
             MapFormat = parseResult.GetValue(MapFormat),
             Threads = parseResult.GetValue(Threads),
             MapFull = parseResult.GetValue(MapFull),
-            Languages = parseResult.GetValue(Languages),
             Input = parseResult.GetRequiredValue(Input),
             Output = parseResult.GetRequiredValue(Output)
         };

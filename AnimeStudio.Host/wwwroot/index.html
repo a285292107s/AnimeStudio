@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AnimeStudio · 文本与 UI 提取</title>
+<title>AnimeStudio · UI 图片提取</title>
 <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
     <div class="brand">
       <span class="brand__mark" aria-hidden="true"></span>
       <span class="brand__name">ANIMESTUDIO</span>
-      <span class="brand__sub">文本 &amp; UI 提取</span>
+      <span class="brand__sub">UI 图片提取</span>
     </div>
 
     <nav class="games" id="games" aria-label="选择游戏"></nav>
@@ -105,14 +105,11 @@
   <main class="main">
 
     <div class="tabs" role="tablist" aria-label="内容视图">
-      <button class="tab is-active" role="tab" aria-selected="true" data-tab="text">
-        文本表 <em id="tabTextCount">—</em>
+      <button class="tab is-active" role="tab" aria-selected="true" data-tab="images">
+        UI 图库 <em id="tabImageCount">—</em>
       </button>
       <button class="tab" role="tab" aria-selected="false" data-tab="assets" hidden>
         资源浏览 <em id="tabAssetCount">—</em>
-      </button>
-      <button class="tab" role="tab" aria-selected="false" data-tab="images">
-        UI 图库 <em id="tabImageCount">—</em>
       </button>
       <button class="tab" role="tab" aria-selected="false" data-tab="log">
         日志
@@ -120,42 +117,6 @@
       <div class="tabs__spacer"></div>
       <button class="btn btn--ghost btn--xs" id="togglePanel" title="显示 / 隐藏详情面板">详情面板</button>
     </div>
-
-    <!-- 文本表 -->
-    <section class="pane is-active" data-pane="text" role="tabpanel">
-      <div class="toolbar">
-        <label class="search">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
-          <input id="textSearch" type="search" placeholder="搜索中文、哈希…  （/ 聚焦）" autocomplete="off">
-        </label>
-        <label class="field field--inline">
-          <span>语言</span>
-          <select id="textLang"></select>
-        </label>
-        <span class="count" id="textCount">—</span>
-        <div class="pager" id="textPager" hidden>
-          <button class="btn btn--xs btn--ghost" data-page="prev" title="上一页">‹</button>
-          <span class="count" id="textPageInfo">—</span>
-          <button class="btn btn--xs btn--ghost" data-page="next" title="下一页">›</button>
-        </div>
-        <div class="toolbar__spacer"></div>
-        <button class="btn btn--ghost btn--xs" id="textExportCsv">导出 CSV</button>
-        <button class="btn btn--xs" id="textExportJson">导出 JSON</button>
-      </div>
-
-      <div class="list">
-        <div class="list__head list__head--text">
-          <span class="c-index">#</span>
-          <span class="c-hash">TextMapHash</span>
-          <span class="c-text">中文</span>
-          <span class="c-src">来源</span>
-        </div>
-        <div class="list__scroll" id="textScroll">
-          <div class="list__spacer" id="textSpacer"></div>
-          <div class="list__window" id="textWindow"></div>
-        </div>
-      </div>
-    </section>
 
     <!-- 资源浏览（直接查 AssetMap，按容器/名称过滤） -->
     <section class="pane" data-pane="assets" role="tabpanel" hidden>
@@ -186,7 +147,7 @@
     </section>
 
     <!-- UI 图库 -->
-    <section class="pane" data-pane="images" role="tabpanel" hidden>
+    <section class="pane is-active" data-pane="images" role="tabpanel">
       <div class="toolbar">
         <label class="search">
           <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
@@ -290,15 +251,6 @@
       </div>
     </div>
     <p class="hint">改哪一款就只影响哪一款，不会覆盖另一款；切换游戏时这里的路径和左侧「输出」会一起刷新。</p>
-
-    <label class="field field--stack">
-      <span>配置表数据源 <em>ExcelOutput JSON（可选）</em></span>
-      <div class="pathrow">
-        <input id="settingsConfigSource" type="text" spellcheck="false" placeholder="例如 …\TurnBasedGameData（含 ExcelOutput 子目录）">
-        <button class="btn btn--xs btn--ghost" id="settingsPickConfigSource">选择</button>
-      </div>
-    </label>
-    <p class="hint">星穹铁道的 ExcelOutput 配置表以数据仓库形式提供；选中后「配置表」提取会把每张表写成 JSON 到输出目录的 <code>config/</code> 下。</p>
 
     <div class="welcome__actions welcome__actions--split">
       <span class="welcome__actions-left">

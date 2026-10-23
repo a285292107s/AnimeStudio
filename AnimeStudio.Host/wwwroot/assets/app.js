@@ -5,7 +5,6 @@
 (() => {
   'use strict';
 
-  const ROW_H = 34;
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const nf = new Intl.NumberFormat('zh-CN');
@@ -13,14 +12,11 @@
 
   const state = {
     data: null,
-    tab: 'text',
+    tab: 'images',
     gameId: 'SR',
-    textQuery: '',
     imageQuery: '',
     imageFilter: 'all',
-    text: [],
     images: [],
-    selectedText: null,
     selectedImages: new Set(),
     preview: null,
     panelHidden: false,
@@ -43,14 +39,11 @@
       return;
     }
 
-    state.text = state.data.texts.slice();
     state.images = state.data.images.slice();
 
     renderGames();
     renderRail();
     renderTabs();
-    renderLanguageSelect();
-    renderTextList();
     renderImageGrid();
     renderInspector();
     bindEvents();
@@ -84,8 +77,8 @@
 
       const game = state.data.games.find((g) => g.id === id);
       if (game.status === 'probe') {
-        toast('绝区零文本表定位中：索引任务在后台运行');
-        pushLog('绝区零：mhy1 容器可读，文本表位置待确认', 'warn');
+        toast('绝区零索引尚未就绪：先在设置里选好目录并建索引');
+        pushLog('绝区零：需要先建索引', 'warn');
         return;
       }
 
@@ -109,7 +102,6 @@
     const statItems = [
       ['资产总数', stats.assets],
       ['Block 数', stats.blocks],
-      ['文本条目', stats.textEntries],
       ['UI 精灵', stats.uiSprites],
       ['Sprite 总数', stats.sprites],
       ['Texture2D', stats.textures],
@@ -124,7 +116,6 @@
       .join('');
 
     $('#presets').innerHTML = [
-      { name: '文本表（全部语言）', count: stats.textEntries, action: 'text' },
       { name: 'UI 图库 · spriteoutput/ui', count: stats.uiSprites, action: 'images' },
       { name: '关键：只选我勾中的', count: null, action: 'selection' },
     ]
@@ -149,92 +140,16 @@
         switchTab('images');
         return;
       }
-      switchTab(action);
-      simulateExport(action === 'text' ? state.text.length : state.images.length, action);
+      switchTab('images');
+      simulateExport(state.images.length, 'images');
     });
   }
 
   function renderTabs() {
-    $('#tabTextCount').textContent = fmt(state.data.stats.textEntries);
-    $('#tabImageCount').textContent = fmt(state.data.stats.uiSprites);
-  }
-
-  function renderLanguageSelect() {
-    const select = $('#textLang');
-    select.innerHTML = state.data.languages
-      .map((language) => `<option value="${language.code}">${language.label} · ${language.code}（${fmt(language.entries)} 条）</option>`)
-      .join('');
-  }
-
-  /* ---------- 文本表 ---------- */
-
-  function currentText() {
-    const q = state.textQuery.trim().toLowerCase();
-    if (!q) return state.text;
-    return state.text.filter(
-      (row) => row.hash.includes(q) || row.text.toLowerCase().includes(q));
-  }
-
-  function renderTextList() {
-    const rows = currentText();
-    const scroll = $('#textScroll');
-    const spacer = $('#textSpacer');
-    const windowEl = $('#textWindow');
-
-    if (!rows.length) {
-      spacer.style.height = '0px';
-      windowEl.style.transform = 'translateY(0)';
-      windowEl.innerHTML =
-        '<div class="empty" style="position:absolute;top:72px;left:0;right:0">' +
-        '<b>没有匹配的文案</b><span>换个关键词试试</span></div>';
-      $('#textCount').textContent = '0 条';
-      return;
+    const imageCount = $('#tabImageCount');
+    if (imageCount) {
+      imageCount.textContent = fmt(state.data.stats.uiSprites);
     }
-
-    spacer.style.height = `${rows.length * ROW_H}px`;
-    $('#textCount').textContent = `${fmt(rows.length)} 条 / 共 ${fmt(state.data.stats.textEntries)}`;
-
-    const draw = () => {
-      const start = Math.max(0, Math.floor(scroll.scrollTop / ROW_H) - 6);
-      const visible = Math.ceil(scroll.clientHeight / ROW_H) + 12;
-      const slice = rows.slice(start, start + visible);
-
-      windowEl.style.transform = `translateY(${start * ROW_H}px)`;
-      windowEl.innerHTML = slice
-        .map((row, offset) => {
-          const index = start + offset;
-          const selected = state.selectedText && state.selectedText.hash === row.hash;
-          return `
-            <div class="row row--text ${selected ? 'is-selected' : ''}" data-index="${index}">
-              <span class="row__index">${index + 1}</span>
-              <span class="row__hash" data-copy="${row.hash}" title="点击复制哈希">${row.hash}</span>
-              <span class="row__text" title="${escapeAttr(row.text)}">${renderMarkup(row.text)}</span>
-              <span class="row__src">${row.source}</span>
-            </div>`;
-        })
-        .join('');
-    };
-
-    scroll.onscroll = draw;
-    draw();
-
-    windowEl.onclick = (event) => {
-      const hashCell = event.target.closest('[data-copy]');
-      if (hashCell) {
-        copy(hashCell.dataset.copy, '哈希已复制');
-        return;
-      }
-
-      const rowEl = event.target.closest('.row');
-      if (!rowEl) return;
-      const row = rows[Number(rowEl.dataset.index)];
-      if (!row) return;
-
-      state.selectedText = row;
-      state.preview = { kind: 'text', item: row };
-      renderTextList();
-      renderInspector();
-    };
   }
 
   /* ---------- 图库 ---------- */
@@ -306,14 +221,7 @@
     const rows = [
       metaRow('游戏', state.data.game?.name || '—'),
       metaRow('数据版本', info?.version || state.data.game?.version || '—'),
-      metaRow('文本条目', fmt(state.data.stats.textEntries)),
     ];
-
-    // Strings/empty counts only exist in the mock preview; the real pipeline stores JSON only.
-    if (!info) {
-      rows.push(metaRow('已解析字符串', fmt(state.data.stats.parsedStrings)));
-      rows.push(metaRow('空字符串', fmt(state.data.stats.emptyStrings)));
-    }
 
     const bytes = info?.mapBytes ?? state.data.stats.indexBytes;
     rows.push(metaRow('地图大小', bytes ? (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB' : '—'));
@@ -355,20 +263,6 @@
           <button class="btn btn--xs" data-act="export-image">导出 PNG</button>
           <button class="btn btn--xs btn--ghost" data-act="copy-path">复制路径</button>
         </div>`;
-    } else {
-      const row = preview.item;
-      body.innerHTML = `
-        <h3 class="insp__title">${escapeHtml(row.text)}</h3>
-        <p class="insp__sub">TextMapHash ${row.hash}</p>
-        <dl class="meta">
-          ${metaRow('来源表', row.source)}
-          ${metaRow('字符数', String(row.text.length))}
-          ${metaRow('语言', 'zh-CN')}
-        </dl>
-        <div class="insp__actions">
-          <button class="btn btn--xs" data-act="copy-text">复制文案</button>
-          <button class="btn btn--xs btn--ghost" data-act="copy-hash">复制哈希</button>
-        </div>`;
     }
 
     body.onclick = (event) => {
@@ -386,12 +280,6 @@
           break;
         case 'copy-path':
           copy(`${image.container}/${image.name}`, '路径已复制');
-          break;
-        case 'copy-text':
-          copy(state.preview.item.text, '文案已复制');
-          break;
-        case 'copy-hash':
-          copy(state.preview.item.hash, '哈希已复制');
           break;
         default:
           break;
@@ -424,12 +312,6 @@
     bindPresets();
     $$('.tab').forEach((tab) => tab.addEventListener('click', () => switchTab(tab.dataset.tab)));
 
-    $('#textSearch').addEventListener('input', debounce((event) => {
-      state.textQuery = event.target.value;
-      state.selectedText = null;
-      renderTextList();
-    }, 120));
-
     $('#imageSearch').addEventListener('input', debounce((event) => {
       state.imageQuery = event.target.value;
       renderImageGrid();
@@ -459,8 +341,6 @@
       document.querySelector('.app').classList.add('is-panel-hidden');
     });
 
-    $('#textExportJson').addEventListener('click', () => simulateExport(currentText().length, 'text'));
-    $('#textExportCsv').addEventListener('click', () => simulateExport(currentText().length, 'text'));
     $('#imageExport').addEventListener('click', () => {
       const count = state.selectedImages.size;
       if (!count) {
@@ -484,7 +364,7 @@
     document.addEventListener('keydown', (event) => {
       if (event.key === '/' && document.activeElement.tagName !== 'INPUT') {
         event.preventDefault();
-        (state.tab === 'images' ? $('#imageSearch') : $('#textSearch')).focus();
+        $('#imageSearch').focus();
       }
       if (event.key === 'Escape') {
         if (document.activeElement.tagName === 'INPUT') {
@@ -498,8 +378,7 @@
       }
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault();
-        if (state.tab === 'images') $('#imageExport').click();
-        else $('#textExportJson').click();
+        $('#imageExport').click();
       }
     });
   }
@@ -517,7 +396,6 @@
       pane.hidden = !active;
     });
 
-    if (tab === 'text') renderTextList();
     if (tab === 'images') renderImageGrid();
   }
 
@@ -573,7 +451,7 @@
       return;
     }
 
-    const label = kind === 'images' ? 'PNG 图片' : '文本表';
+    const label = 'PNG 图片';
     setStatus(`正在导出 ${fmt(count)} 条${label}…`, true);
 
     let done = 0;
@@ -645,12 +523,6 @@
     }[char]));
   }
 
-  /* 游戏文案里的富文本标签（<unbreak>、<color=#..>）压到背景色，正文更清楚 */
-  function renderMarkup(value) {
-    return escapeHtml(value).replace(/&lt;(\/?[a-zA-Z][a-zA-Z0-9_=#\-. ]*)&gt;/g,
-      '<span class="tag">&lt;$1&gt;</span>');
-  }
-
   const escapeAttr = escapeHtml;
 
   function attachHostBridge() {
@@ -678,8 +550,6 @@
     renderGames,
     renderRail,
     renderTabs,
-    renderLanguageSelect,
-    renderTextList,
     renderImageGrid,
     renderInspector,
     switchTab,

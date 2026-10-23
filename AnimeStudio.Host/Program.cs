@@ -78,7 +78,7 @@ internal sealed class HostForm : Form
 
     public HostForm()
     {
-        Text = "AnimeStudio · 文本与 UI 提取";
+        Text = "AnimeStudio · UI 图片提取";
 
         // WinForms sizes are device pixels. On a 200% display, a fixed 1560px window
         // leaves WebView2 a ~780px CSS viewport and the three-column layout collapses,

@@ -22,14 +22,12 @@ internal sealed class HostService
     private readonly Func<string, string?> _pickFolder;
     private readonly Func<string?, string?> _mapOutputFolder;
     private readonly CliRunner _runner;
-    private readonly TextTableStore _text = new();
 
     private List<ImageItem> _images = [];
     private List<ImageCategory> _categories = [];
     private readonly object _imageGate = new();
     private int _imageVersion;
     private readonly List<(string Game, string From, string To)> _outputSyncNotices = [];
-    private int _configTableCount;
     private CancellationTokenSource? _taskCts;
 
     private AssetMapScanner.MapStats? _mapStats;
@@ -142,9 +140,6 @@ internal sealed class HostService
             case "task.cancel":
                 _taskCts?.Cancel();
                 break;
-            case "text.query":
-                HandleTextQuery(root, requestId);
-                break;
             case "images.query":
                 _ = QueryImagesAsync(root, requestId);
                 break;
@@ -166,12 +161,6 @@ internal sealed class HostService
     {
         // Follow output folders renamed in Explorer before reporting paths to the UI.
         SynchronizeOutputPaths(notify: false);
-        RefreshConfigTableCount();
-
-        if (_text.Tables.Count == 0 && GameRoot.Length > 0)
-        {
-            _text.Load(Path.Combine(GameRoot, "text"));
-        }
 
         Send(new
         {
@@ -301,21 +290,14 @@ internal sealed class HostService
             Settings.Game = game;
             SettingsStore.Save(Settings);
 
-            _text.Clear();
             InvalidateImageIndex();
             _mapStats = null;
             _mapStatsPath = null;
             _indexCacheBytes = 0;
             _indexFormat = string.Empty;
 
-            if (GameRoot.Length > 0)
-            {
-                _text.Load(Path.Combine(GameRoot, "text"));
-            }
-
             // out.local serves the active game's own directory, so PNG URLs stay portable.
             _mapOutputFolder(GameRoot);
-            RefreshConfigTableCount();
         }
 
         if (notify)
@@ -350,7 +332,6 @@ internal sealed class HostService
         gameDataPath = Profile.DataPath,
         outputDirectory = GameRoot,
         cliPath = Settings.CliPath,
-        configTableSource = Settings.ConfigTableSource,
         mapPath = MapPath(),
         indexName = Profile.IndexName,
         profiles = Settings.Profiles.Keys,
@@ -368,19 +349,11 @@ internal sealed class HostService
     {
         game = Settings.Game,
         mapExists = File.Exists(MapPath()),
-        textTables = _text.Tables.Select(static table => new { locale = table.Locale, count = table.Count }),
-        locales = _text.Locales,
         images = _images.Count,
         categories = _categories,
         indexInfo = new
         {
             game = Settings.Game,
-            version = _text.Version,
-            textEntries = _text.IsLoaded
-                ? _text.Total(_text.Locales.FirstOrDefault(candidate => candidate.Equals("zh-CN", StringComparison.OrdinalIgnoreCase))
-                              ?? _text.Locales.FirstOrDefault()
-                              ?? "zh-CN")
-                : 0,
             mapBytes = SafeFileLength(MapPath()),
             mapPath = MapPath(),
             cacheBytes = _indexCacheBytes,
@@ -388,7 +361,6 @@ internal sealed class HostService
             mapModified = SafeFileModified(MapPath()),
         },
         outputDirectory = GameRoot,
-        configTables = _configTableCount,
     };
 
     private void HandlePick(JsonElement root)
@@ -399,7 +371,6 @@ internal sealed class HostService
         {
             "game" => "选择游戏的 <Game>_Data 目录",
             "output" => $"选择 {GameLabel(game)} 的输出目录",
-            "config" => "选择配置表数据源目录（ExcelOutput 或包含它的仓库根目录）",
             _ => "选择目录",
         });
 
@@ -415,9 +386,6 @@ internal sealed class HostService
                 break;
             case "output":
                 ApplyOutputDirectory(game, picked);
-                break;
-            case "config":
-                Settings.ConfigTableSource = picked;
                 break;
             default:
                 return;
@@ -480,51 +448,11 @@ internal sealed class HostService
     /// <summary>Drops everything that was read from the previous output directory.</summary>
     private void ResetGameOutputs()
     {
-        _text.Clear();
         InvalidateImageIndex();
         _mapStats = null;
         _mapStatsPath = null;
         _indexCacheBytes = 0;
         _indexFormat = string.Empty;
-
-        if (GameRoot.Length > 0)
-        {
-            _text.Load(Path.Combine(GameRoot, "text"));
-        }
-
-        RefreshConfigTableCount();
-    }
-
-    /// <summary>Counts exported config tables (excluding the manifest) for the UI summary.</summary>
-    private void RefreshConfigTableCount()
-    {
-        _configTableCount = 0;
-        string root = GameRoot;
-        if (root.Length == 0)
-        {
-            return;
-        }
-
-        string directory = Path.Combine(root, "config");
-        if (!Directory.Exists(directory))
-        {
-            return;
-        }
-
-        try
-        {
-            foreach (string file in Directory.EnumerateFiles(directory, "*.json", SearchOption.TopDirectoryOnly))
-            {
-                if (!string.Equals(Path.GetFileName(file), "config.index.json", StringComparison.OrdinalIgnoreCase))
-                {
-                    _configTableCount++;
-                }
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // A half-deleted folder is not worth failing the UI over.
-        }
     }
 
     private void HandleSave(JsonElement root)
@@ -560,11 +488,6 @@ internal sealed class HostService
             if (TryGetOptionalString(settings, "indexName", out string? indexName) && !string.IsNullOrWhiteSpace(indexName))
             {
                 Profile.IndexName = indexName.Trim();
-            }
-
-            if (TryGetOptionalString(settings, "configTableSource", out string? configSource))
-            {
-                Settings.ConfigTableSource = Blank(configSource);
             }
 
             // New UI sends both games' paths at once; older markup sends a single path that
@@ -703,9 +626,8 @@ internal sealed class HostService
 
         if (activeChanged)
         {
-            // Everything cached from the old path (text, gallery, map stats) is stale.
+            // Everything cached from the old path (gallery, map stats) is stale.
             InvalidateImageIndex();
-            _text.Clear();
             _mapStats = null;
             _mapStatsPath = null;
             _indexCacheBytes = 0;
@@ -927,7 +849,7 @@ internal sealed class HostService
                 QueueMapStats(force: true);
             }
 
-            if (exitCode == 0 && kind is "text" or "images")
+            if (exitCode == 0 && kind == "images")
             {
                 // Snapshot + diff is a few seconds of gzip work; do not hold up task.done.
                 _ = Task.Run(() => PublishDiff(save: true));
@@ -977,25 +899,6 @@ internal sealed class HostService
                         "--map_type", "MessagePack",
                         "--map_name", mapName,
                     ];
-                }
-
-            case "text":
-                {
-                    var arguments = new List<string>
-                    {
-                        gameDataPath, Path.Combine(GameRoot, "text"),
-                        "--game", game,
-                        "--textmap",
-                    };
-
-                    string[] languages = GetStringArray(payload, "languages");
-                    if (languages.Length > 0)
-                    {
-                        arguments.Add("--lang");
-                        arguments.AddRange(languages);
-                    }
-
-                    return arguments;
                 }
 
             case "images":
@@ -1048,37 +951,6 @@ internal sealed class HostService
                     return arguments;
                 }
 
-            case "config":
-                {
-                    string source = (GetString(payload, "configSource") ?? Settings.ConfigTableSource ?? string.Empty).Trim();
-                    if (source.Length == 0)
-                    {
-                        throw new InvalidOperationException(
-                            "请先在设置里选择「配置表数据源」目录（ExcelOutput 或包含它的仓库根目录）。");
-                    }
-
-                    if (!Directory.Exists(source))
-                    {
-                        throw new InvalidOperationException($"配置表数据源目录不存在：{source}");
-                    }
-
-                    var arguments = new List<string>
-                    {
-                        gameDataPath, GameRoot,
-                        "--game", game,
-                        "--config_tables", source,
-                    };
-
-                    string[] configNames = GetStringArray(payload, "configNames");
-                    if (configNames.Length > 0)
-                    {
-                        arguments.Add("--config_names");
-                        arguments.AddRange(configNames);
-                    }
-
-                    return arguments;
-                }
-
             default:
                 throw new InvalidOperationException($"未知任务：{kind}");
         }
@@ -1088,9 +960,6 @@ internal sealed class HostService
     {
         switch (kind)
         {
-            case "text":
-                _text.Load(Path.Combine(GameRoot, "text"));
-                break;
             case "images":
                 InvalidateImageIndex();
                 if (GameRoot.Length > 0)
@@ -1103,57 +972,10 @@ internal sealed class HostService
                 Profile.MapPath = MapPath();
                 SettingsStore.Save(Settings);
                 break;
-            case "config":
-                RefreshConfigTableCount();
-                break;
         }
     }
 
     /* ---------- queries ---------- */
-
-    private void HandleTextQuery(JsonElement root, int requestId)
-    {
-        if (!_text.IsLoaded && GameRoot.Length > 0)
-        {
-            _text.Load(Path.Combine(GameRoot, "text"));
-        }
-
-        string[] locales = _text.Locales;
-        string? requested = GetString(root, "locale");
-
-        // The UI clears its locale when switching games; fall back to the first installed one
-        // instead of querying an empty locale (which would return 0 and zero out the counters).
-        string locale;
-        if (!string.IsNullOrWhiteSpace(requested) && locales.Contains(requested, StringComparer.OrdinalIgnoreCase))
-        {
-            locale = locales.First(candidate => candidate.Equals(requested, StringComparison.OrdinalIgnoreCase));
-        }
-        else
-        {
-            // Prefer Simplified Chinese when installed, then Traditional, then whatever exists.
-            locale = locales.FirstOrDefault(candidate => candidate.Equals("zh-CN", StringComparison.OrdinalIgnoreCase))
-                     ?? locales.FirstOrDefault(candidate => candidate.Equals("zh-TW", StringComparison.OrdinalIgnoreCase))
-                     ?? locales.FirstOrDefault()
-                     ?? (string.IsNullOrWhiteSpace(requested) ? "zh-CN" : requested!);
-        }
-
-        string query = GetString(root, "query") ?? string.Empty;
-        int offset = GetInt(root, "offset") ?? 0;
-        int limit = Math.Clamp(GetInt(root, "limit") ?? 200, 1, 1000);
-
-        (int total, List<KeyValuePair<string, string>> rows) = _text.Query(locale, query, offset, limit);
-
-        Send(new
-        {
-            type = "text.page",
-            requestId,
-            locale,
-            total,
-            offset,
-            locales,
-            rows = rows.Select(static row => new[] { row.Key, row.Value }),
-        });
-    }
 
     /// <summary>
     /// Image query runs off the message thread: scanning a freshly selected output folder can
@@ -1439,16 +1261,6 @@ internal sealed class HostService
                 type = "diff.result",
                 saved = wroteBaseline,
                 hasPrevious = diff.HasPrevious,
-                version = diff.Version,
-                previousVersion = diff.PreviousVersion,
-                text = new
-                {
-                    added = diff.TextAdded,
-                    removed = diff.TextRemoved,
-                    changed = diff.TextChanged,
-                    byLocale = diff.ByLocale,
-                    samples = diff.TextSamples,
-                },
                 images = new
                 {
                     added = diff.ImagesAdded,
@@ -1470,30 +1282,13 @@ internal sealed class HostService
 
     private Snapshot BuildSnapshot()
     {
-        if (!_text.IsLoaded && GameRoot.Length > 0)
-        {
-            _text.Load(Path.Combine(GameRoot, "text"));
-        }
-
         EnsureImageIndex();
 
         var snapshot = new Snapshot
         {
             Game = Settings.Game,
             CreatedAt = DateTimeOffset.Now.ToString("O"),
-            Version = _text.Version,
         };
-
-        foreach (string locale in _text.Locales)
-        {
-            var rows = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (KeyValuePair<string, string> row in _text.Rows(locale))
-            {
-                rows[row.Key] = row.Value;
-            }
-
-            snapshot.Text[locale] = rows;
-        }
 
         foreach (ImageItem image in _images)
         {
@@ -1624,9 +1419,6 @@ internal sealed class HostService
 
         (new Regex("OutOfMemory|内存不足", RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "内存不足：关掉其它占用内存的程序后重试，或分几批导出。"),
-
-        (new Regex("DesignData|TextMap", RegexOptions.IgnoreCase | RegexOptions.Compiled),
-            "找不到文本数据：确认选中完整的 <Game>_Data 目录，并至少启动过一次游戏。"),
 
         (new Regex("NullReference|Object reference not set", RegexOptions.IgnoreCase | RegexOptions.Compiled),
             "解析资源时空引用，通常意味着地图与游戏版本不匹配：重建索引后再试。"),
