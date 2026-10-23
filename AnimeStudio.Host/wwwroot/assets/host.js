@@ -14,6 +14,8 @@
   const $ = (selector) => document.querySelector(selector);
   const nf = new Intl.NumberFormat('zh-CN');
   const fmt = (value) => nf.format(value || 0);
+  const GAME_NAMES = { SR: '星穹铁道', ZZZ: '绝区零' };
+  const nameOfGame = (id) => GAME_NAMES[id] || id || '—';
   const TEXT_PAGE = 200;
   const IMAGE_PAGE = 120;
 
@@ -39,6 +41,17 @@
 
   let seq = 0;
 
+  // app.js loads its shell asynchronously (mock/data.json); a welcome reply can arrive
+  // before APP.state.data exists, so hold host messages until the shell is ready.
+  let shellReady = Boolean(APP.state.data);
+  const earlyMessages = [];
+  window.addEventListener('app:ready', () => {
+    shellReady = true;
+    for (const message of earlyMessages.splice(0)) {
+      handle(message);
+    }
+  });
+
   function call(type, payload = {}) {
     return new Promise((resolve) => {
       const requestId = ++seq;
@@ -55,6 +68,11 @@
       return;
     }
 
+    if (!shellReady) {
+      earlyMessages.push(message);
+      return;
+    }
+
     if (message.requestId && pending.has(message.requestId)) {
       pending.get(message.requestId)(message);
       pending.delete(message.requestId);
@@ -65,12 +83,17 @@
       case 'welcome':
         onWelcome(message);
         break;
-      case 'settings.changed':
+      case 'settings.changed': {
+        const previousOutput = state.settings.outputDirectory;
         applySettings(message.settings, message.state);
         if ($('#settings') && !$('#settings').hidden) {
           fillSettingsForm();
         }
+        if (previousOutput !== state.settings.outputDirectory) {
+          resetOutputViews();
+        }
         break;
+      }
       case 'task.started':
         onTaskStarted(message);
         break;
@@ -135,13 +158,8 @@
         state.category = 'all';
         APP.state.imageFilter = 'all';
         applySettings(message.settings, message.state);
-        APP.state.text = [];
-        APP.state.images = [];
-        APP.renderTextList();
-        APP.renderImageGrid();
-        loadText('');
-        loadImages('');
-        APP.toast(`已切换到 ${message.settings.game}`);
+        resetOutputViews();
+        APP.toast(`已切换到 ${nameOfGame(message.settings.game)}`);
         break;
       case 'map.stats.pending':
         APP.setStatus('正在统计索引…', true);
@@ -198,6 +216,24 @@
     }
   }
 
+  /// <summary>Clears text/images read from the previous output and asks for the new ones.</summary>
+  function resetOutputViews() {
+    APP.state.text = [];
+    APP.state.images = [];
+    APP.state.data.stats.textEntries = 0;
+    APP.state.data.stats.uiSprites = 0;
+    state.textOffset = 0;
+    state.imageOffset = 0;
+    state.textTotal = 0;
+    state.imageTotal = 0;
+    state.category = 'all';
+    APP.state.imageFilter = 'all';
+    APP.renderTextList();
+    APP.renderImageGrid();
+    loadText('');
+    loadImages('');
+  }
+
   function applySettings(settings, hostState) {
     if (settings) {
       state.settings = settings;
@@ -240,10 +276,9 @@
 
     if (current.indexInfo) {
       APP.state.data.indexInfo = current.indexInfo;
-      const names = { SR: '星穹铁道', ZZZ: '绝区零' };
       APP.state.data.game = {
         ...(APP.state.data.game || {}),
-        name: names[current.indexInfo.game] || current.indexInfo.game || '—',
+        name: nameOfGame(current.indexInfo.game),
         version: current.indexInfo.version || '—',
       };
     }
@@ -267,6 +302,14 @@
     $('#gamePath').title = state.settings.gameDataPath || '';
     $('#outDir').textContent = state.settings.outputDirectory || '未选择输出目录（点击选择）';
     $('#outDir').title = state.settings.outputDirectory || '';
+    const outHint = $('#outHint');
+    if (outHint) {
+      const game = nameOfGame(state.settings.game);
+      const other = state.settings.outputDirectories?.[state.settings.game === 'SR' ? 'ZZZ' : 'SR'];
+      outHint.textContent = state.settings.outputDirectory
+        ? `${game} 独立目录 · 切换游戏自动切换${other ? '' : '（另一游戏尚未设置）'}`
+        : `${game} 还没有输出目录：点上面的路径选择`;
+    }
 
     const ready = Boolean(state.hostState?.mapExists);
     $('#indexChipText').textContent = ready ? '索引就绪' : '未建索引';
@@ -311,7 +354,12 @@
 
     const label = $('#settingsGameLabel');
     if (label) {
-      label.textContent = settings.game === 'ZZZ' ? '绝区零' : '星穹铁道';
+      label.textContent = nameOfGame(settings.game);
+    }
+
+    const outputLabel = $('#settingsOutputLabel');
+    if (outputLabel) {
+      outputLabel.textContent = nameOfGame(settings.game);
     }
   }
 
@@ -348,6 +396,11 @@
     const outputPath = $('#welcomeOutputPath');
     if (outputPath) {
       outputPath.textContent = state.settings.outputDirectory || '未选择';
+    }
+
+    const outputLabel = $('#welcomeOutputLabel');
+    if (outputLabel) {
+      outputLabel.textContent = nameOfGame(state.settings.game);
     }
   }
 

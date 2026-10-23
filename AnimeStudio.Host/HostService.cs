@@ -20,7 +20,7 @@ internal sealed class HostService
 
     private readonly Action<string> _post;
     private readonly Func<string, string?> _pickFolder;
-    private readonly Action<string?> _mapOutputFolder;
+    private readonly Func<string?, string?> _mapOutputFolder;
     private readonly CliRunner _runner;
     private readonly TextTableStore _text = new();
 
@@ -34,7 +34,7 @@ internal sealed class HostService
     private bool _installScanRunning;
     private int _diffRunning;
 
-    public HostService(Action<string> post, Func<string, string?> pickFolder, Action<string?> mapOutputFolder)
+    public HostService(Action<string> post, Func<string, string?> pickFolder, Func<string?, string?> mapOutputFolder)
     {
         _post = post;
         _pickFolder = pickFolder;
@@ -52,7 +52,12 @@ internal sealed class HostService
         {
             if (!Settings.Profiles.TryGetValue(Settings.Game, out GameProfile? profile))
             {
-                profile = new GameProfile();
+                // A fresh profile inherits the old shared-root layout (<root>\<GAME>) until the
+                // user points this game somewhere else.
+                profile = new GameProfile
+                {
+                    OutputDirectory = SettingsStore.LegacyGameRoot(Settings, Settings.Game),
+                };
                 Settings.Profiles[Settings.Game] = profile;
             }
 
@@ -60,10 +65,40 @@ internal sealed class HostService
         }
     }
 
-    /// <summary>Each game owns a subdirectory of the shared output root.</summary>
-    public string GameRoot => string.IsNullOrWhiteSpace(Settings.OutputDirectory)
-        ? string.Empty
-        : Path.Combine(Settings.OutputDirectory!, Settings.Game);
+    /// <summary>Current game's own output directory; each game has an independent one.</summary>
+    public string GameRoot
+    {
+        get
+        {
+            string configured = Profile.OutputDirectory?.Trim() ?? string.Empty;
+            if (configured.Length > 0)
+            {
+                return configured;
+            }
+
+            // Fallback for settings that were never migrated.
+            return string.IsNullOrWhiteSpace(Settings.OutputDirectory)
+                ? string.Empty
+                : Path.Combine(Settings.OutputDirectory!, Settings.Game);
+        }
+    }
+
+    /// <summary>Registers a URL for every configured game output before the page loads.</summary>
+    public void WarmOutputMappings()
+    {
+        _mapOutputFolder(GameRoot);
+
+        foreach (GameProfile profile in Settings.Profiles.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(profile.OutputDirectory))
+            {
+                _mapOutputFolder(profile.OutputDirectory);
+            }
+        }
+    }
+
+    /// <summary>Base URL the shell exposes for the current game's output directory.</summary>
+    private string OutputUrlPrefix() => _mapOutputFolder(GameRoot) ?? string.Empty;
 
     public void Handle(string rawJson)
     {
@@ -265,6 +300,9 @@ internal sealed class HostService
             {
                 _text.Load(Path.Combine(GameRoot, "text"));
             }
+
+            // out.local serves the active game's own directory, so PNG URLs stay portable.
+            _mapOutputFolder(GameRoot);
         }
 
         if (notify)
@@ -283,13 +321,16 @@ internal sealed class HostService
     private object SettingsDto() => new
     {
         game = Settings.Game,
+        gameLabel = GameLabel(Settings.Game),
         gameDataPath = Profile.DataPath,
-        outputDirectory = Settings.OutputDirectory,
-        gameRoot = GameRoot,
+        outputDirectory = GameRoot,
         cliPath = Settings.CliPath,
         mapPath = MapPath(),
         indexName = Profile.IndexName,
         profiles = Settings.Profiles.Keys,
+        outputDirectories = Settings.Profiles
+            .Where(static pair => !string.IsNullOrWhiteSpace(pair.Value.OutputDirectory))
+            .ToDictionary(static pair => pair.Key, static pair => pair.Value.OutputDirectory, StringComparer.OrdinalIgnoreCase),
     };
 
     private object StateDto() => new
@@ -312,17 +353,17 @@ internal sealed class HostService
             mapBytes = SafeFileLength(MapPath()),
             mapPath = MapPath(),
         },
-        outputDirectory = Settings.OutputDirectory,
-        gameRoot = GameRoot,
+        outputDirectory = GameRoot,
     };
 
     private void HandlePick(JsonElement root)
     {
         string target = GetString(root, "target") ?? "game";
+        string game = Settings.Game;
         string? picked = _pickFolder(target switch
         {
             "game" => "选择游戏的 <Game>_Data 目录",
-            "output" => "选择输出目录",
+            "output" => $"选择 {GameLabel(game)} 的输出目录",
             _ => "选择目录",
         });
 
@@ -337,8 +378,7 @@ internal sealed class HostService
                 Profile.DataPath = picked;
                 break;
             case "output":
-                Settings.OutputDirectory = picked;
-                _mapOutputFolder(picked);
+                ApplyOutputDirectory(picked);
                 break;
             default:
                 return;
@@ -346,6 +386,39 @@ internal sealed class HostService
 
         SettingsStore.Save(Settings);
         SendSettingsChanged();
+    }
+
+    /// <summary>Points the current game at its own output directory (each game keeps its own).</summary>
+    private void ApplyOutputDirectory(string directory)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            Send(new { type = "log", level = "warn", message = $"[host] 无法创建输出目录：{exception.Message}" });
+        }
+
+        Profile.OutputDirectory = directory;
+        ResetGameOutputs();
+        _mapOutputFolder(GameRoot);
+        LogInfo($"[host] {GameLabel(Settings.Game)} 导出目录 → {GameRoot}");
+    }
+
+    /// <summary>Drops everything that was read from the previous output directory.</summary>
+    private void ResetGameOutputs()
+    {
+        _text.Clear();
+        _images = [];
+        _categories = [];
+        _mapStats = null;
+        _mapStatsPath = null;
+
+        if (GameRoot.Length > 0)
+        {
+            _text.Load(Path.Combine(GameRoot, "text"));
+        }
     }
 
     private void HandleSave(JsonElement root)
@@ -383,14 +456,15 @@ internal sealed class HostService
                 Profile.IndexName = indexName.Trim();
             }
 
-            if (TryGetOptionalString(settings, "outputDirectory", out string? output) &&
-                !string.IsNullOrWhiteSpace(output) &&
-                output != Settings.OutputDirectory)
+            if (TryGetOptionalString(settings, "outputDirectory", out string? output))
             {
-                Settings.OutputDirectory = output;
-                _mapOutputFolder(output);
-                _images = [];
-                _categories = [];
+                string trimmed = output?.Trim() ?? string.Empty;
+                if (trimmed.Length > 0 &&
+                    !string.Equals(trimmed, GameRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyOutputDirectory(trimmed);
+                    QueueMapStats(force: true);
+                }
             }
         }
 
@@ -505,9 +579,9 @@ internal sealed class HostService
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(Settings.OutputDirectory))
+        if (GameRoot.Length == 0)
         {
-            Send(new { type = "task.failed", kind, message = "请先选择输出目录。" });
+            Send(new { type = "task.failed", kind, message = $"请先为 {GameLabel(Settings.Game)} 选择输出目录。" });
             return;
         }
 
@@ -715,9 +789,9 @@ internal sealed class HostService
                 _text.Load(Path.Combine(GameRoot, "text"));
                 break;
             case "images":
-                if (!string.IsNullOrWhiteSpace(Settings.OutputDirectory))
+                if (GameRoot.Length > 0)
                 {
-                    (_images, _categories) = ImageIndex.Scan(GameRoot, Settings.OutputDirectory!);
+                    (_images, _categories) = ImageIndex.Scan(GameRoot, OutputUrlPrefix());
                 }
 
                 break;
@@ -798,7 +872,6 @@ internal sealed class HostService
 
         List<ImageItem> matched = filtered.ToList();
         List<ImageItem> page = matched.Skip(offset).Take(limit).ToList();
-        string urlRoot = Settings.OutputDirectory ?? string.Empty;
         string gameRoot = GameRoot;
 
         // Thumbnails are rendered off the message thread: the first page of a fresh export
@@ -809,7 +882,7 @@ internal sealed class HostService
             {
                 ImageIndex.EnsureThumbnail(
                     Path.Combine(gameRoot, item.RelativePath),
-                    Path.Combine(urlRoot, item.ThumbRelativePath));
+                    Path.Combine(gameRoot, item.ThumbRelativePath));
             }
 
             Send(new
@@ -911,20 +984,68 @@ internal sealed class HostService
     }
 
     private void EnsureImageIndex()
-    {        if (_images.Count > 0 || GameRoot.Length == 0 || string.IsNullOrWhiteSpace(Settings.OutputDirectory))
+    {
+        if (_images.Count > 0 || GameRoot.Length == 0)
         {
             return;
         }
 
-        (_images, _categories) = ImageIndex.Scan(GameRoot, Settings.OutputDirectory!);
+        (_images, _categories) = ImageIndex.Scan(GameRoot, OutputUrlPrefix());
     }
 
     /* ---------- version diff ---------- */
 
-    private string SnapshotPath() =>
-        string.IsNullOrWhiteSpace(Settings.OutputDirectory)
-            ? string.Empty
-            : Path.Combine(Settings.OutputDirectory!, ".cache", "snapshots", $"{Settings.Game}.json.gz");
+    private string SnapshotPath() => GameRoot.Length == 0
+        ? string.Empty
+        : Path.Combine(GameRoot, ".cache", "snapshots", "snapshot.json.gz");
+
+    /// <summary>
+    /// Snapshots used to live in the shared root (<c>root\.cache\snapshots\SR.json.gz</c>).
+    /// Load that old file when the per-game one does not exist yet, and drop the game prefix
+    /// from image keys (old keys were <c>SR/ui/…</c>, new keys are <c>ui/…</c>).
+    /// </summary>
+    private Snapshot? LoadPreviousSnapshot(string path)
+    {
+        Snapshot? previous = SnapshotStore.Load(path);
+
+        if (previous is null && SettingsStore.LegacyGameRoot(Settings, Settings.Game) is { } legacyRoot)
+        {
+            previous = SnapshotStore.Load(
+                Path.Combine(legacyRoot, ".cache", "snapshots", Settings.Game + ".json.gz"));
+        }
+
+        if (previous is not null)
+        {
+            StripLegacyImagePrefix(previous, Settings.Game);
+        }
+
+        return previous;
+    }
+
+    private static void StripLegacyImagePrefix(Snapshot snapshot, string game)
+    {
+        string prefix = game + "/";
+        var rewritten = new Dictionary<string, ImageSnapshotEntry>(snapshot.Images.Count, StringComparer.OrdinalIgnoreCase);
+        bool changed = false;
+
+        foreach ((string key, ImageSnapshotEntry value) in snapshot.Images)
+        {
+            if (key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                rewritten[key[prefix.Length..]] = value;
+                changed = true;
+            }
+            else
+            {
+                rewritten[key] = value;
+            }
+        }
+
+        if (changed)
+        {
+            snapshot.Images = rewritten;
+        }
+    }
 
     /// <summary>
     /// Builds a snapshot of the current output, compares it with the previous extraction and
@@ -945,7 +1066,7 @@ internal sealed class HostService
 
         try
         {
-            Snapshot? previous = SnapshotStore.Load(path);
+            Snapshot? previous = LoadPreviousSnapshot(path);
             Snapshot current = BuildSnapshot();
             DiffResult diff = SnapshotDiff.Compare(previous, current);
 
@@ -1032,7 +1153,7 @@ internal sealed class HostService
 
     private void OpenOutputFolder()
     {
-        string directory = GameRoot.Length > 0 ? GameRoot : Settings.OutputDirectory ?? string.Empty;
+        string directory = GameRoot;
         if (directory.Length == 0 || !Directory.Exists(directory))
         {
             return;
@@ -1050,6 +1171,16 @@ internal sealed class HostService
 
     /* ---------- helpers ---------- */
 
+    private static string GameLabel(string game) => game.ToUpperInvariant() switch
+    {
+        "SR" or "STARRAIL" => "星穹铁道",
+        "ZZZ" or "ZENLESS" => "绝区零",
+        _ => game,
+    };
+
+    /// <summary>Diagnostics from the service into the UI log.</summary>
+    public void LogInfo(string message) => Send(new { type = "log", level = "info", message });
+
     public string MapPath()
     {
         if (!string.IsNullOrWhiteSpace(Profile.MapPath))
@@ -1057,7 +1188,7 @@ internal sealed class HostService
             return Profile.MapPath!;
         }
 
-        if (string.IsNullOrWhiteSpace(Settings.OutputDirectory))
+        if (GameRoot.Length == 0)
         {
             return string.Empty;
         }

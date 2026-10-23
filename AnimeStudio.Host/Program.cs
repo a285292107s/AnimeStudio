@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -62,7 +65,15 @@ internal sealed class HostForm : Form
 {
     private const string AppVirtualHost = "app.local";
 
+    /// <summary>
+    /// Prefix for exported files. <c>out.local</c> is not a real host: the
+    /// <see cref="CoreWebView2.WebResourceRequested"/> handler serves files from the game's own
+    /// output directory, so HSR and ZZZ can live on any drive and change at runtime.
+    /// </summary>
+    private const string OutputVirtualHost = "out.local";
+
     private readonly WebView2 _webView = new();
+    private readonly ConcurrentDictionary<string, string> _outputRoots = new(StringComparer.OrdinalIgnoreCase);
     private HostService? _service;
 
     public HostForm()
@@ -110,8 +121,15 @@ internal sealed class HostForm : Form
         string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
         core.SetVirtualHostNameToFolderMapping(AppVirtualHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 
-        _service = new HostService(PostJson, PickFolder, MapOutputFolder);
-        MapOutputFolder(_service.Settings.OutputDirectory);
+        // Exported PNGs are served by the handler below instead of a folder mapping: a
+        // WebView2 virtual-host mapping cannot be re-pointed reliably at runtime
+        // (WebView2Feedback#1018) and each game now has its own output directory.
+        core.AddWebResourceRequestedFilter(
+            $"https://{OutputVirtualHost}/*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += OnWebResourceRequested;
+
+        _service = new HostService(PostJson, PickFolder, EnsureOutputMapping);
+        _service.WarmOutputMappings();
 
         core.WebMessageReceived += (_, e) =>
         {
@@ -170,29 +188,108 @@ internal sealed class HostForm : Form
         return dialog.ShowDialog() == DialogResult.OK ? dialog.SelectedPath : null;
     }
 
-    /// <summary>Expose the output directory as https://out.local/ so &lt;img&gt; can load PNGs directly.</summary>
-    private void MapOutputFolder(string? directory)
+    /// <summary>
+    /// Makes one output directory readable by the page and returns its URL prefix
+    /// (<c>https://out.local/&lt;key&gt;/</c>). HSR and ZZZ extract into independent
+    /// directories that can live on any drive, and the key is derived from the path, so
+    /// changing the path needs no WebView2 re-registration.
+    /// </summary>
+    private string? EnsureOutputMapping(string? directory)
     {
-        if (_webView.CoreWebView2 is null)
+        if (string.IsNullOrWhiteSpace(directory))
         {
-            return;
+            return null;
         }
 
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        string normalized;
+        try
+        {
+            normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+
+        string key = OutputKeyFor(normalized);
+        _outputRoots[key] = normalized;
+        return $"https://{OutputVirtualHost}/{key}/";
+    }
+
+    private static string OutputKeyFor(string directory)
+    {
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(directory.ToLowerInvariant()));
+        return Convert.ToHexString(hash)[..12].ToLowerInvariant();
+    }
+
+    /// <summary>Serves <c>https://out.local/&lt;key&gt;/…</c> from the registered output root.</summary>
+    private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        CoreWebView2? core = _webView.CoreWebView2;
+        if (core is null)
         {
             return;
         }
 
         try
         {
-            _webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                ImageIndex.VirtualHost,
-                directory,
-                CoreWebView2HostResourceAccessKind.Allow);
+            (int status, byte[]? content, string contentType) = ResolveOutputFile(e.Request.Uri);
+            Stream? stream = content is null ? null : new MemoryStream(content, writable: false);
+
+            e.Response = core.Environment.CreateWebResourceResponse(
+                stream,
+                status,
+                status == 200 ? "OK" : "Not Found",
+                $"Content-Type: {contentType}\r\nCache-Control: no-store");
         }
-        catch (ArgumentException)
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or System.Runtime.InteropServices.COMException)
         {
-            // Invalid path for a virtual host mapping; the UI will simply not show images.
+            // A failed image must never leave a dangling response or take the window down.
+        }
+    }
+
+    private (int Status, byte[]? Content, string ContentType) ResolveOutputFile(string requestUri)
+    {
+        try
+        {
+            if (!Uri.TryCreate(requestUri, UriKind.Absolute, out Uri? uri))
+            {
+                return (400, null, "text/plain");
+            }
+
+            string[] parts = uri.AbsolutePath.TrimStart('/').Split('/', 3);
+            if (parts.Length < 2 || !_outputRoots.TryGetValue(parts[0], out string? root))
+            {
+                return (404, null, "text/plain");
+            }
+
+            string relative = Uri.UnescapeDataString(parts.Length > 2 ? $"{parts[1]}/{parts[2]}" : parts[1]);
+            if (relative.Length == 0)
+            {
+                return (404, null, "text/plain");
+            }
+
+            string rootFull = Path.GetFullPath(root + Path.DirectorySeparatorChar);
+            string full = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+            if (!full.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
+            {
+                return (404, null, "text/plain");
+            }
+
+            string contentType = Path.GetExtension(full).ToLowerInvariant() switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".webp" => "image/webp",
+                ".gif" => "image/gif",
+                _ => "application/octet-stream",
+            };
+
+            return (200, File.ReadAllBytes(full), contentType);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return (404, null, "text/plain");
         }
     }
 }

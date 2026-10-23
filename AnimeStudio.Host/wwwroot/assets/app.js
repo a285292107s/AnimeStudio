@@ -57,6 +57,7 @@
     attachHostBridge();
     pushLog(window.chrome?.webview ? '就绪' : '就绪：预览数据（mock）', 'info');
     setStatus('就绪');
+    window.dispatchEvent(new Event('app:ready'));
   }
 
   /* ---------- 顶栏 / 左栏 ---------- */

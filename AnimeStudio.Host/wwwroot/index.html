@@ -58,6 +58,7 @@
     <section class="rail__block rail__block--end">
       <h2 class="label">输出 <span>OUTPUT</span></h2>
       <code class="path path--out" id="outDir">out/</code>
+      <p class="hint" id="outHint">当前游戏独立目录</p>
       <label class="field">
         <span>分组方式</span>
         <select id="groupMode">
@@ -239,12 +240,13 @@
     </label>
 
     <label class="field field--stack">
-      <span>输出目录</span>
+      <span>输出目录 <em id="settingsOutputLabel">—</em></span>
       <div class="pathrow">
         <input id="settingsOutputPath" type="text" spellcheck="false" placeholder=" — ">
         <button class="btn btn--xs btn--ghost" id="settingsPickOutput">选择</button>
       </div>
     </label>
+    <p class="hint">两个游戏各用各的目录：切换游戏时会自动换成它自己的输出路径，互不覆盖。</p>
 
     <div class="welcome__actions welcome__actions--split">
       <span class="welcome__actions-left">
@@ -272,7 +274,7 @@
       </li>
       <li class="welcome__step">
         <span class="welcome__num">②</span>
-        <div class="welcome__body"><b>输出目录</b><span id="welcomeOutputPath">未选择</span></div>
+        <div class="welcome__body"><b>输出目录 <em id="welcomeOutputLabel">—</em></b><span id="welcomeOutputPath">未选择</span></div>
         <button class="btn btn--xs btn--ghost" id="welcomePickOutput">选择</button>
       </li>
       <li class="welcome__step">

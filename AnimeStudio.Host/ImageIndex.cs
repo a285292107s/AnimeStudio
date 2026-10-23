@@ -20,31 +20,40 @@ internal sealed record ImageCategory(string Id, string Label, int Count);
 /// <summary>
 /// Lists PNGs under a game's output directory and groups them into categories derived from
 /// the export path (e.g. <c>spriteoutput/ui/quest</c>). Thumbnails are generated on demand
-/// into a cache folder that is served through the same <c>out.local</c> virtual host, so the
-/// gallery never has to load multi-megabyte originals just to show a grid.
+/// into a cache folder served through the same <c>out.local</c> URL prefix, so the gallery
+/// never has to load multi-megabyte originals just to show a grid.
 /// </summary>
 internal static class ImageIndex
 {
-    public const string VirtualHost = "out.local";
-    public const string UrlPrefix = "https://out.local/";
     private const int ThumbnailEdge = 160;
 
-    public static (List<ImageItem> Items, List<ImageCategory> Categories) Scan(string scanRoot, string urlRoot)
+    /// <summary>
+    /// Lists PNGs under one game's output directory. <paramref name="urlPrefix"/> is that
+    /// directory's virtual host (<c>https://out-&lt;hash&gt;.local/</c>), so URLs are simply
+    /// <c>https://out-…local/ui/…png</c>.
+    /// </summary>
+    public static (List<ImageItem> Items, List<ImageCategory> Categories) Scan(string gameRoot, string urlPrefix)
     {
         var items = new List<ImageItem>();
 
-        if (!Directory.Exists(scanRoot) || !Directory.Exists(urlRoot))
+        if (!Directory.Exists(gameRoot))
         {
             return (items, []);
         }
 
-        foreach (string path in Directory.EnumerateFiles(scanRoot, "*.png", SearchOption.AllDirectories))
+        foreach (string path in Directory.EnumerateFiles(gameRoot, "*.png", SearchOption.AllDirectories))
         {
             try
             {
-                string relativeToUrlRoot = Path.GetRelativePath(urlRoot, path).Replace('\\', '/');
-                string relativeToScanRoot = Path.GetRelativePath(scanRoot, path).Replace('\\', '/');
-                string thumbRelative = $".cache/thumbs/{relativeToUrlRoot}";
+                string relative = Path.GetRelativePath(gameRoot, path).Replace('\\', '/');
+
+                // Thumbnails live under <root>/.cache/thumbs and must not show up as export results.
+                if (relative.StartsWith(".cache/", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string thumbRelative = $".cache/thumbs/{relative}";
 
                 (int width, int height) = ReadPngSize(path);
                 string name = Path.GetFileNameWithoutExtension(path);
@@ -62,10 +71,10 @@ internal static class ImageIndex
 
                 items.Add(new ImageItem(
                     name,
-                    relativeToScanRoot,
-                    CategoryOf(relativeToUrlRoot, name),
-                    UrlPrefix + Escape(relativeToUrlRoot),
-                    UrlPrefix + Escape(thumbRelative),
+                    relative,
+                    CategoryOf(relative, name),
+                    urlPrefix + Escape(relative),
+                    urlPrefix + Escape(thumbRelative),
                     thumbRelative,
                     width,
                     height,
@@ -131,13 +140,13 @@ internal static class ImageIndex
     }
 
     /// <summary>
-    /// Turns "SR/ui/assets/asbres/spriteoutput/ui/quest/x.png" into "spriteoutput/ui/quest".
+    /// Turns "ui/assets/asbres/spriteoutput/ui/quest/x.png" into "spriteoutput/ui/quest".
     /// ZZZ has no asset paths (its containers are numeric IDs), so it falls back to a readable
     /// name prefix ("pc", "ps5", "icon", …) instead of a meaningless number.
     /// </summary>
-    private static string CategoryOf(string relativeToUrlRoot, string name)
+    private static string CategoryOf(string relative, string name)
     {
-        string[] parts = relativeToUrlRoot.Split('/');
+        string[] parts = relative.Split('/');
         int asbres = Array.FindIndex(parts, static part => part.Equals("asbres", StringComparison.OrdinalIgnoreCase));
 
         if (asbres >= 0 && parts.Length > asbres + 2)
@@ -149,8 +158,10 @@ internal static class ImageIndex
             }
         }
 
-        // Fallback: first two directory segments after <game>/ui/.
-        string directoryCategory = string.Join('/', parts.Take(Math.Max(0, parts.Length - 1)).Skip(2).Take(2));
+        // Fallback: first two directory segments, skipping the leading "ui/" every export has.
+        string[] directories = parts.Length > 1 ? parts[..^1] : [];
+        int start = directories.Length > 0 && directories[0].Equals("ui", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
+        string directoryCategory = string.Join('/', directories.Skip(start).Take(2));
         if (directoryCategory.Length > 0 &&
             !IsNumericCategory(directoryCategory) &&
             !directoryCategory.Equals("Sprite", StringComparison.OrdinalIgnoreCase) &&
