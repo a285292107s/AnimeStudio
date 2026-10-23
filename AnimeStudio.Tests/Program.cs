@@ -17,6 +17,7 @@ internal static class Program
     {
         Run("install-detection", InstallDetection);
         Run("snapshot-diff", SnapshotDiffTests);
+        Run("container-index", ContainerIndexTests);
 
         Console.WriteLine();
         Console.WriteLine(_failed == 0
@@ -142,5 +143,54 @@ internal static class Program
         DiffResult baseline = SnapshotDiff.Compare(null, newSnapshot);
         Check(!baseline.HasPrevious, "baseline has no previous");
         Equal(0, baseline.TotalImageChanges, "baseline image changes");
+    }
+
+    /* ---------- ZZZ container index ---------- */
+
+    private static void ContainerIndexTests()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "anime-tests-" + Guid.NewGuid().ToString("N")[..8]);
+
+        try
+        {
+            Directory.CreateDirectory(root);
+            string json = Path.Combine(root, "Z3-AssetIndex-Eleiyas.json");
+            File.WriteAllText(json, """
+                {
+                  "7444794748978933277": "Assets/NapResources/UI/Menus/Dialog/Friend/BusinessCardDialog.prefab",
+                  "6706176343850719170": "Assets/Code/Logic/VoxelArrayForOverlay.compute"
+                }
+                """);
+
+            Check(ContainerIndex.TryLoad(json, out string error), $"load json: {error}");
+            Equal(2, ContainerIndex.Count, "index count");
+            Equal(
+                "Assets/NapResources/UI/Menus/Dialog/Friend/BusinessCardDialog.prefab",
+                ContainerIndex.Resolve("7444794748978933277") ?? string.Empty,
+                "resolve hash");
+            Check(ContainerIndex.Resolve("12345") is null, "unknown hash stays unresolved");
+            Check(ContainerIndex.Resolve("Assets/plain") is null, "non-numeric container is not a hash");
+
+            // 第二次从二进制缓存读，内容必须一致。
+            ContainerIndex.Unload();
+            Check(ContainerIndex.TryLoad(json, out string cachedError), $"load cache: {cachedError}");
+            Equal(2, ContainerIndex.Count, "cached count");
+            Equal(
+                "Assets/Code/Logic/VoxelArrayForOverlay.compute",
+                ContainerIndex.Resolve("6706176343850719170") ?? string.Empty,
+                "resolve from cache");
+        }
+        finally
+        {
+            ContainerIndex.Unload();
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch (IOException)
+            {
+                // temp cleanup only
+            }
+        }
     }
 }

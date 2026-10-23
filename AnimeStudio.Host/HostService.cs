@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AnimeStudio.Application.Diff;
@@ -21,6 +22,7 @@ internal sealed class HostService
     private readonly Action<string> _post;
     private readonly Func<string, string?> _pickFolder;
     private readonly Func<string?, string?> _mapOutputFolder;
+    private readonly Func<string, string, string?>? _pickFile;
     private readonly CliRunner _runner;
 
     private List<ImageItem> _images = [];
@@ -37,12 +39,19 @@ internal sealed class HostService
     private bool _mapStatsRunning;
     private bool _installScanRunning;
     private int _diffRunning;
+    private bool _containerIndexLoading;
+    private int _containerIndexDownloadRunning;
 
-    public HostService(Action<string> post, Func<string, string?> pickFolder, Func<string?, string?> mapOutputFolder)
+    public HostService(
+        Action<string> post,
+        Func<string, string?> pickFolder,
+        Func<string?, string?> mapOutputFolder,
+        Func<string, string, string?>? pickFile = null)
     {
         _post = post;
         _pickFolder = pickFolder;
         _mapOutputFolder = mapOutputFolder;
+        _pickFile = pickFile;
         Settings = SettingsStore.Load();
         _runner = new CliRunner(Settings);
     }
@@ -149,6 +158,21 @@ internal sealed class HostService
             case "open.folder":
                 OpenOutputFolder();
                 break;
+            case "container.index.reload":
+                QueueContainerIndexLoad(force: true);
+                break;
+            case "container.index.pick":
+                PickContainerIndex();
+                break;
+            case "container.index.download":
+                QueueContainerIndexDownload();
+                break;
+            case "container.index.clear":
+                Settings.ContainerIndexPath = null;
+                SettingsStore.Save(Settings);
+                ContainerIndex.Unload();
+                SendContainerIndexStatus();
+                break;
             default:
                 Send(new { type = "ack", received = type });
                 break;
@@ -181,6 +205,7 @@ internal sealed class HostService
         _outputSyncNotices.Clear();
 
         QueueMapStats(force: false);
+        QueueContainerIndexLoad(force: false);
 
         // First run (or a game that was never configured): look for the installs ourselves.
         bool missingPath = false;
@@ -332,6 +357,7 @@ internal sealed class HostService
         gameDataPath = Profile.DataPath,
         outputDirectory = GameRoot,
         cliPath = Settings.CliPath,
+        containerIndexPath = Settings.ContainerIndexPath,
         mapPath = MapPath(),
         indexName = Profile.IndexName,
         profiles = Settings.Profiles.Keys,
@@ -361,6 +387,17 @@ internal sealed class HostService
             mapModified = SafeFileModified(MapPath()),
         },
         outputDirectory = GameRoot,
+        containerIndex = ContainerIndexDto(),
+    };
+
+    /// <summary>ZZZ hash → path table status, shown in the settings dialog and the rail.</summary>
+    private object ContainerIndexDto() => new
+    {
+        loaded = ContainerIndex.IsLoaded,
+        count = ContainerIndex.Count,
+        path = ContainerIndex.LoadedFrom ?? Settings.ContainerIndexPath,
+        loading = _containerIndexLoading,
+        downloading = _containerIndexDownloadRunning > 0,
     };
 
     private void HandlePick(JsonElement root)
@@ -459,6 +496,7 @@ internal sealed class HostService
     {
         string previousMapPath = MapPath();
         bool switchGame = false;
+        bool reloadContainerIndex = false;
         string? gameName = null;
 
         if (root.TryGetProperty("settings", out JsonElement settings) && settings.ValueKind == JsonValueKind.Object)
@@ -488,6 +526,16 @@ internal sealed class HostService
             if (TryGetOptionalString(settings, "indexName", out string? indexName) && !string.IsNullOrWhiteSpace(indexName))
             {
                 Profile.IndexName = indexName.Trim();
+            }
+
+            if (TryGetOptionalString(settings, "containerIndexPath", out string? containerIndexPath))
+            {
+                string? trimmed = Blank(containerIndexPath);
+                if (!string.Equals(trimmed, Settings.ContainerIndexPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    Settings.ContainerIndexPath = trimmed;
+                    reloadContainerIndex = true;
+                }
             }
 
             // New UI sends both games' paths at once; older markup sends a single path that
@@ -545,6 +593,11 @@ internal sealed class HostService
             _indexCacheBytes = 0;
             _indexFormat = string.Empty;
             QueueMapStats(force: true);
+        }
+
+        if (reloadContainerIndex)
+        {
+            QueueContainerIndexLoad(force: true);
         }
     }
 
@@ -671,6 +724,164 @@ internal sealed class HostService
         {
             return false;
         }
+    }
+
+    /* ---------- ZZZ container index (hash → path) ---------- */
+
+    /// <summary>Upstream publishes the index as a plain JSON object; ~80 MB, cached to a binary file on load.</summary>
+    private const string ContainerIndexUrl =
+        "https://raw.githubusercontent.com/Eleiyas/Z3-Asset-Index/main/Z3-AssetIndex-Eleiyas.json";
+
+    private static string ContainerIndexDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnimeStudio", "Maps");
+
+    private static string DefaultContainerIndexFile =>
+        Path.Combine(ContainerIndexDirectory, ContainerIndex.DefaultFileName);
+
+    /// <summary>Loads the index from the configured path or the default locations, off the UI thread.</summary>
+    private void QueueContainerIndexLoad(bool force)
+    {
+        if (_containerIndexLoading)
+        {
+            return;
+        }
+
+        _containerIndexLoading = true;
+        Send(new { type = "container.index.pending" });
+
+        string? configured = Settings.ContainerIndexPath;
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                string? path = !string.IsNullOrWhiteSpace(configured) && File.Exists(configured)
+                    ? configured
+                    : ContainerIndex.FindDefault();
+
+                if (path is null)
+                {
+                    return;
+                }
+
+                if (!force &&
+                    ContainerIndex.IsLoaded &&
+                    string.Equals(ContainerIndex.LoadedFrom, path, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                if (ContainerIndex.TryLoad(path, out string error))
+                {
+                    LogInfo($"[containers] {ContainerIndex.Count:N0} 条 hash → 路径（{ContainerIndex.LoadedFrom}）");
+                }
+                else
+                {
+                    LogInfo($"[containers] 无法读取容器索引：{error}");
+                }
+            }
+            finally
+            {
+                _containerIndexLoading = false;
+                SendContainerIndexStatus();
+            }
+        });
+    }
+
+    private void SendContainerIndexStatus() => Send(new
+    {
+        type = "container.index",
+        loaded = ContainerIndex.IsLoaded,
+        count = ContainerIndex.Count,
+        path = ContainerIndex.LoadedFrom ?? Settings.ContainerIndexPath,
+        loading = _containerIndexLoading,
+        downloading = _containerIndexDownloadRunning > 0,
+    });
+
+    private void PickContainerIndex()
+    {
+        string? picked = _pickFile?.Invoke(
+            "选择 ZZZ 容器索引（Z3-AssetIndex-Eleiyas.json）",
+            "JSON (*.json)|*.json|所有文件 (*.*)|*.*");
+
+        if (string.IsNullOrWhiteSpace(picked))
+        {
+            return;
+        }
+
+        Settings.ContainerIndexPath = picked;
+        SettingsStore.Save(Settings);
+        QueueContainerIndexLoad(force: true);
+    }
+
+    /// <summary>Downloads the Z3 index into %LOCALAPPDATA%\AnimeStudio\Maps and loads it.</summary>
+    private void QueueContainerIndexDownload()
+    {
+        if (Interlocked.Exchange(ref _containerIndexDownloadRunning, 1) == 1)
+        {
+            Send(new { type = "container.index.busy" });
+            return;
+        }
+
+        SendContainerIndexStatus();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                Directory.CreateDirectory(ContainerIndexDirectory);
+                string target = DefaultContainerIndexFile;
+                string temporary = target + ".download";
+                Send(new { type = "container.index.progress", received = 0L, total = 0L });
+
+                using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+                using HttpResponseMessage response =
+                    await client.GetAsync(ContainerIndexUrl, HttpCompletionOption.ResponseHeadersRead);
+                response.EnsureSuccessStatusCode();
+
+                long total = response.Content.Headers.ContentLength ?? 0;
+                long received = 0;
+                long nextReport = 0;
+
+                await using (Stream input = await response.Content.ReadAsStreamAsync())
+                await using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
+                {
+                    var buffer = new byte[1 << 20];
+                    int read;
+                    while ((read = await input.ReadAsync(buffer)) > 0)
+                    {
+                        await output.WriteAsync(buffer.AsMemory(0, read));
+                        received += read;
+                        if (received >= nextReport)
+                        {
+                            nextReport = received + (4L << 20);
+                            Send(new { type = "container.index.progress", received, total });
+                        }
+                    }
+                }
+
+                File.Move(temporary, target, overwrite: true);
+
+                Settings.ContainerIndexPath = target;
+                SettingsStore.Save(Settings);
+
+                if (ContainerIndex.TryLoad(target, out string error))
+                {
+                    LogInfo($"[containers] 已下载并加载 {ContainerIndex.Count:N0} 条 hash → 路径");
+                }
+                else
+                {
+                    Send(new { type = "log", level = "warn", message = $"[host] 容器索引下载完成，但读取失败：{error}" });
+                }
+            }
+            catch (Exception exception)
+            {
+                Send(new { type = "container.index.failed", message = Humanize(exception.Message) ?? exception.Message });
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _containerIndexDownloadRunning, 0);
+                SendContainerIndexStatus();
+            }
+        });
     }
 
     /* ---------- map statistics ---------- */
@@ -898,6 +1109,7 @@ internal sealed class HostService
                         "--map_op", "AssetMap",
                         "--map_type", "MessagePack",
                         "--map_name", mapName,
+                        .. ContainerIndexArguments(),
                     ];
                 }
 
@@ -948,12 +1160,22 @@ internal sealed class HostService
                         arguments.AddRange(names);
                     }
 
+                    arguments.AddRange(ContainerIndexArguments());
                     return arguments;
                 }
 
             default:
                 throw new InvalidOperationException($"未知任务：{kind}");
         }
+    }
+
+    /// <summary>Passes the index path to the CLI so a custom location works for builds and exports.</summary>
+    private string[] ContainerIndexArguments()
+    {
+        string? path = ContainerIndex.LoadedFrom ?? Settings.ContainerIndexPath;
+        return string.IsNullOrWhiteSpace(path) || !File.Exists(path)
+            ? []
+            : ["--container_index", path];
     }
 
     private void ReloadOutputs(string kind)
@@ -1089,7 +1311,8 @@ internal sealed class HostService
                     source = Path.GetFileName(item.Source),
                     sourcePath = item.Source,
                     type = item.Type.ToString(),
-                    pathId = item.PathId,
+                    // ZZZ path ids are 64-bit hashes: send them as text so the UI does not round them.
+                    pathId = item.PathId.ToString(CultureInfo.InvariantCulture),
                     hash = item.Hash,
                 }),
             });

@@ -270,6 +270,16 @@
     </label>
 
     <div class="field field--stack">
+      <span>绝区零容器索引 <em id="settingsContainerIndexState">可选 · 让 ZZZ 资源显示路径</em></span>
+      <div class="pathrow">
+        <input id="settingsContainerIndex" type="text" spellcheck="false" placeholder="留空自动查找；没有就点「下载」">
+        <button class="btn btn--xs btn--ghost" id="settingsContainerPick">选择</button>
+        <button class="btn btn--xs" id="settingsContainerDownload">下载</button>
+      </div>
+      <p class="hint" id="settingsContainerHint">绝区零的容器是 xxhash64，没有索引时资源浏览只能看到数字 ID。索引是 Eleiyas 的 Z3-AssetIndex（约 81 MB），下载后不用重建地图就能显示路径。</p>
+    </div>
+
+    <div class="field field--stack">
       <span>输出目录 <em>每款游戏各一个</em></span>
       <div class="outputs" id="settingsOutputs">
         <div class="outputs__row" data-game="SR">

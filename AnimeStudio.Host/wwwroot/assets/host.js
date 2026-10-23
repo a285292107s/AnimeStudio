@@ -57,6 +57,9 @@
     assetsDirty: true,
     assetsLoading: false,
     assetsQueued: false,
+    // ZZZ 容器索引（hash → 路径）状态：{ loaded, count, path, loading, downloading }
+    containerIndex: null,
+    containerIndexProgress: 0,
     // 资源浏览里勾中的行：key -> { name, type }；key 由 类型+PathID+来源 组成。
     assetSelected: new Map(),
     assetRows: [],
@@ -208,6 +211,55 @@
       case 'output.synced':
         APP.pushLog(`输出目录已移动，自动同步：${message.from} → ${message.to}`);
         APP.toast(`输出目录已移动：已同步到 ${message.to.split('\\').pop() || message.to}`);
+        break;
+      case 'container.index.pending':
+        if (state.containerIndex) {
+          state.containerIndex.loading = true;
+        }
+        paintContainerIndexStatus();
+        break;
+      case 'container.index': {
+        const previousLoaded = Boolean(state.containerIndex?.loaded);
+        const previousCount = state.containerIndex?.count || 0;
+        state.containerIndex = {
+          loaded: Boolean(message.loaded),
+          count: message.count || 0,
+          path: message.path || '',
+          loading: Boolean(message.loading),
+          downloading: Boolean(message.downloading),
+        };
+        paintContainerIndexStatus();
+
+        const changed = state.containerIndex.loaded !== previousLoaded ||
+          (state.containerIndex.loaded && state.containerIndex.count !== previousCount);
+
+        if (changed) {
+          // 容器从哈希变成了路径（或反过来）：屏幕上的行已经过期。
+          resetAssets(message.loaded ? '容器索引已加载，正在刷新…' : '容器索引已清除');
+          if (document.querySelector('.tab.is-active')?.dataset.tab === 'assets') {
+            refreshAssets();
+          }
+        }
+        break;
+      }
+      case 'container.index.progress':
+        state.containerIndexProgress = message.received || 0;
+        paintContainerIndexStatus();
+        APP.setStatus(
+          `正在下载容器索引 ${fmtBytes(message.received || 0)}` +
+            (message.total ? ` / ${fmtBytes(message.total)}` : ''),
+          true);
+        break;
+      case 'container.index.failed':
+        if (state.containerIndex) {
+          state.containerIndex.downloading = false;
+        }
+        paintContainerIndexStatus();
+        APP.toast(`容器索引下载失败：${message.message}`);
+        APP.pushLog(`容器索引下载失败：${message.message}`);
+        break;
+      case 'container.index.busy':
+        APP.toast('容器索引正在下载中，稍等');
         break;
       case 'game.switched':
         state.mapStats = null;
@@ -389,6 +441,11 @@
       };
     }
 
+    if (current.containerIndex) {
+      state.containerIndex = { ...current.containerIndex };
+      paintContainerIndexStatus();
+    }
+
     paintChrome();
   }
 
@@ -524,9 +581,12 @@
     put('#settingsCliPath', settings.cliPath);
     put('#settingsMapPath', settings.mapPath);
     put('#settingsIndexName', settings.indexName);
+    // A default-location index has no settings path; show where it actually came from.
+    put('#settingsContainerIndex', settings.containerIndexPath || state.containerIndex?.path || '');
     put('#settingsOutputPath', settings.outputDirectory);
     put('#settingsOutputSR', outputPathFor('SR'));
     put('#settingsOutputZZZ', outputPathFor('ZZZ'));
+    paintContainerIndexStatus();
 
     // Mark the game the rest of the dialog (game dir, map, index) belongs to.
     document.querySelectorAll('#settingsOutputs .outputs__row').forEach((row) => {
@@ -554,6 +614,35 @@
     const modal = $('#settings');
     if (modal) {
       modal.hidden = false;
+    }
+  }
+
+  /// <summary>Shows whether the ZZZ hash → path table is loaded, and what the download is doing.</summary>
+  function paintContainerIndexStatus() {
+    const index = state.containerIndex || {};
+    const label = $('#settingsContainerIndexState');
+    const hint = $('#settingsContainerHint');
+    const download = $('#settingsContainerDownload');
+
+    if (download) {
+      download.disabled = Boolean(index.downloading || index.loading);
+      download.textContent = index.downloading ? '下载中…' : index.loaded ? '更新' : '下载';
+    }
+
+    if (label) {
+      label.textContent = index.downloading
+        ? `下载中 ${fmtBytes(state.containerIndexProgress)}`
+        : index.loading
+          ? '正在读取索引…'
+          : index.loaded
+            ? `已加载 ${fmt(index.count)} 条`
+            : '可选 · 让 ZZZ 资源显示路径';
+    }
+
+    if (hint) {
+      hint.textContent = index.loaded
+        ? `当前：${index.path || '—'}。资源浏览里的容器会显示成 Assets/NapResources/… 这样的路径。`
+        : '绝区零的容器是 xxhash64，没有索引时资源浏览只能看到数字 ID。索引是 Eleiyas 的 Z3-AssetIndex（约 81 MB），下载后不用重建地图就能显示路径。';
     }
   }
 
@@ -1228,7 +1317,25 @@
 
     list.innerHTML = head + rows;
     updateAssetSelectionUi();
+    hintContainerIndexGap();
     APP.pushLog(`资源查询：匹配 ${fmt(response.total)} 条，显示 ${fmt(items.length)} 条（${response.elapsedMs} ms）`);
+  }
+
+  /// <summary>ZZZ without the hash index shows numbers; point at the one-click download.</summary>
+  function hintContainerIndexGap() {
+    const hint = $('#assetSelectionHint');
+    if (!hint) {
+      return;
+    }
+
+    const hasHashes = state.assetRows.some((row) => /^\d{10,}$/.test(row.container));
+    if (hasHashes && !state.containerIndex?.loaded) {
+      hint.textContent = '容器只显示哈希：到「设置」下载绝区零容器索引即可显示路径（不用重建地图）';
+      hint.classList.add('is-warn');
+    } else {
+      hint.textContent = '勾选行 → 导出；导出结果在图库预览';
+      hint.classList.remove('is-warn');
+    }
   }
 
   /// <summary>Stable per-entry identity: the same name can live in several bundles.</summary>
@@ -1490,6 +1597,19 @@
       return;
     }
 
+    if (hit('#settingsContainerPick')) {
+      stop(event);
+      call('container.index.pick');
+      return;
+    }
+
+    if (hit('#settingsContainerDownload')) {
+      stop(event);
+      call('container.index.download');
+      APP.pushLog('开始下载 ZZZ 容器索引…');
+      return;
+    }
+
     if (hit('#settingsPickOutput')) {
       stop(event);
       call('settings.pick', { target: 'output' });
@@ -1593,6 +1713,7 @@
           cliPath: $('#settingsCliPath').value,
           mapPath: $('#settingsMapPath').value,
           indexName: $('#settingsIndexName').value,
+          containerIndexPath: $('#settingsContainerIndex')?.value || '',
           outputDirectories: outputs,
           outputDirectory: outputs[state.settings.game] || '',
         },

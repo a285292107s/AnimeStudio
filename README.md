@@ -33,6 +33,7 @@ AnimeStudio 打开 Unity 打好的资源包（bundle / CAB），把里面能认�
 | UI 图库 | 只负责预览：160 px 缩略图按需生成、按容器分类、按名称搜索、每页 120 张；大图查看器支持 ← → 翻页、滚轮缩放、1:1、拖拽平移 | Host |
 | 筛选导出 | 「资源浏览」按名称、容器、来源、类型查索引，整行勾选（Shift 连选、全选本页），再导出所选或全部匹配 | Host |
 | 资源索引 | 建 `AssetMap`（紧凑 v2 / MessagePack），并行扫描，只重扫变化的包 | Host / CLI |
+| ZZZ 容器路径 | 绝区零的容器是 xxhash64；下载 Eleiyas 的 Z3 索引后显示成 `Assets/NapResources/…` 真实路径，导出也按路径分组 | Host / CLI |
 | 资源浏览 | 按名称、容器、来源、类型直接查索引；可把名称或容器条件交给 CLI 导出 | Host |
 | 快照对比 | 导出后自动和上一份输出比对：新增、消失、尺寸或文件大小变化的图片 | Host |
 | 每游戏独立输出 | 星铁、绝区零各一条输出目录，互不覆盖；文件夹改名后自动跟随 | Host |
@@ -99,6 +100,7 @@ dist/
 几个补充：
 
 - 「导出全部匹配」需要至少一个名称或容器条件（来源过滤暂不支持导出），避免把整张地图都导出去。
+- **绝区零的容器是哈希。** ZZZ 的 bundle 清单里存的是 xxhash64，没有索引时资源浏览只能显示一串数字。设置里点「下载」会拉取 [Eleiyas 的 Z3 索引](https://github.com/Eleiyas/Z3-Asset-Index)（约 81 MB，存到 `%LOCALAPPDATA%\AnimeStudio\Maps`），之后容器显示成 `Assets/NapResources/UI/…` 这样的路径，`--containers` 和按容器导出也一起生效；**不用重建地图**。索引只覆盖约三分之二的条目，剩下的仍显示哈希。
 - 设置保存在 `%LOCALAPPDATA%\AnimeStudio\host.settings.json`，崩溃日志是同目录的 `host-crash.log`。
 - 图库只扫输出目录里的 PNG。Host 不再有文本页，文本表和配置表的专用提取已经从本 fork 移除；通用 `TextAsset` 仍然可以当普通资产导出。
 - Host 目前只自动识别星穹铁道和绝区零；其它游戏用 GUI / CLI 的 `--game` 指定。

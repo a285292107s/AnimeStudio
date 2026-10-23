@@ -623,6 +623,7 @@ button { font: inherit; color: inherit; }
 }
 
 .count { font-family: var(--mono); font-size: 11px; color: var(--faint); white-space: nowrap; }
+.count.is-warn { color: var(--warn); }
 
 .chips {
   display: flex;

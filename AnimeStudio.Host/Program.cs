@@ -128,7 +128,7 @@ internal sealed class HostForm : Form
             $"https://{OutputVirtualHost}/*", CoreWebView2WebResourceContext.All);
         core.WebResourceRequested += OnWebResourceRequested;
 
-        _service = new HostService(PostJson, PickFolder, EnsureOutputMapping);
+        _service = new HostService(PostJson, PickFolder, EnsureOutputMapping, PickFile);
         _service.WarmOutputMappings();
 
         core.WebMessageReceived += (_, e) =>
@@ -186,6 +186,18 @@ internal sealed class HostForm : Form
         };
 
         return dialog.ShowDialog() == DialogResult.OK ? dialog.SelectedPath : null;
+    }
+
+    private static string? PickFile(string title, string filter)
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Title = title,
+            Filter = filter,
+            CheckFileExists = true,
+        };
+
+        return dialog.ShowDialog() == DialogResult.OK ? dialog.FileName : null;
     }
 
     /// <summary>

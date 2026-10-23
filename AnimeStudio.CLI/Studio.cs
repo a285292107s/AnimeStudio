@@ -276,7 +276,7 @@ namespace AnimeStudio.CLI
             {
                 var isMatchRegex = nameFilters.IsNullOrEmpty() || nameFilters.Any(y => y.IsMatch(x.Text));
                 var isFilteredType = typeFilters.IsNullOrEmpty() || typeFilters.Contains(x.Type);
-                var isContainerMatch = containerFilters.IsNullOrEmpty() || containerFilters.Any(y => y.IsMatch(x.Container));
+                var isContainerMatch = containerFilters.IsNullOrEmpty() || containerFilters.Any(y => y.IsMatch(x.Container ?? string.Empty));
                 return isMatchRegex && isFilteredType && isContainerMatch;
             }).ToArray();
             exportableAssets.Clear();

@@ -34,13 +34,28 @@ namespace AnimeStudio.CLI
             {
                 var game = GameManager.GetGame(o.GameName);
 
-                // See https://github.com/Eleiyas/Z3-Asset-Map 
-                var paths = File.Exists("./Maps/Z3-AssetIndex-Eleiyas.json")
-                    ? JsonConvert.DeserializeObject<Dictionary<ulong, string>>(File.ReadAllText("./Maps/Z3-AssetIndex-Eleiyas.json"))
-                    : new Dictionary<ulong, string>();
+                // ZZZ stores container paths as xxhash64 values; the optional index turns those
+                // back into paths (see https://github.com/Eleiyas/Z3-Asset-Index). Without it the
+                // container column stays a number, which is what the raw map contains.
+                string? containerIndexPath = o.ContainerIndex != null
+                    ? o.ContainerIndex.FullName
+                    : ContainerIndex.FindDefault();
 
-                Studio.Paths = paths;
-                AssetsHelper.Paths = paths;
+                Studio.Paths = new Dictionary<ulong, string>();
+                if (containerIndexPath != null)
+                {
+                    if (ContainerIndex.TryLoad(containerIndexPath, out string indexError))
+                    {
+                        Studio.Paths = ContainerIndex.Table ?? new Dictionary<ulong, string>();
+                        Logger.Info($"[containers] {ContainerIndex.Count:N0} hash -> path entries from {ContainerIndex.LoadedFrom}");
+                    }
+                    else
+                    {
+                        Logger.Warning($"[containers] Could not read the container index: {indexError}");
+                    }
+                }
+
+                AssetsHelper.Paths = Studio.Paths;
 
                 if (game == null)
                 {

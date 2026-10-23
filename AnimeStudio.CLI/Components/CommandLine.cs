@@ -36,6 +36,7 @@ namespace AnimeStudio.CLI
             rootCommand.Options.Add(optionsBinder.AssetExportType);
             rootCommand.Options.Add(optionsBinder.Key);
             rootCommand.Options.Add(optionsBinder.AIFile);
+            rootCommand.Options.Add(optionsBinder.ContainerIndex);
             rootCommand.Options.Add(optionsBinder.DummyDllFolder);
             rootCommand.Options.Add(optionsBinder.NoHash);
             rootCommand.Options.Add(optionsBinder.MapFormat);
@@ -66,6 +67,7 @@ namespace AnimeStudio.CLI
         public ExportType AssetExportType { get; set; }
         public byte Key { get; set; }
         public FileInfo AIFile { get; set; }
+        public FileInfo ContainerIndex { get; set; }
         public DirectoryInfo DummyDllFolder { get; set; }
         public bool NoHash { get; set; }
         public MapFormat MapFormat { get; set; }
@@ -92,6 +94,7 @@ namespace AnimeStudio.CLI
         public readonly Option<ExportType> AssetExportType;
         public readonly Option<byte> Key;
         public readonly Option<FileInfo> AIFile;
+        public readonly Option<FileInfo> ContainerIndex;
         public readonly Option<DirectoryInfo> DummyDllFolder;
         public readonly Option<bool> NoHash;
         public readonly Option<MapFormat> MapFormat;
@@ -164,6 +167,10 @@ namespace AnimeStudio.CLI
             {
                 Description = "Specify how assets should be exported."
             };
+            ContainerIndex = new Option<FileInfo>("--container_index")
+            {
+                Description = "ZZZ container hash -> path index (Eleiyas Z3-AssetIndex json). Defaults to Maps/Z3-AssetIndex-Eleiyas.json or %LOCALAPPDATA%\\AnimeStudio\\Maps."
+            };
             AIFile = new Option<FileInfo>("--ai_file")
             {
                 Description = "Specify asset_index json file path (to recover GI containers)."
@@ -208,6 +215,7 @@ namespace AnimeStudio.CLI
             NameFilter.Validators.Add(FilterValidator);
             ContainerFilter.Validators.Add(FilterValidator);
             AIFile.Validators.Add(LegalPathValidator);
+            ContainerIndex.Validators.Add(LegalPathValidator);
             DummyDllFolder.Validators.Add(LegalPathValidator);
             Key.Validators.Add(result =>
             {
@@ -361,6 +369,7 @@ namespace AnimeStudio.CLI
             AssetExportType = parseResult.GetValue(AssetExportType),
             Key = parseResult.GetValue(Key),
             AIFile = parseResult.GetValue(AIFile),
+            ContainerIndex = parseResult.GetValue(ContainerIndex),
             DummyDllFolder = parseResult.GetValue(DummyDllFolder),
             NoHash = parseResult.GetValue(NoHash),
             MapFormat = parseResult.GetValue(MapFormat),

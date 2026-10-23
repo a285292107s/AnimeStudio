@@ -38,6 +38,12 @@ internal sealed class HostSettings
     /// <summary>Optional explicit CLI path; otherwise auto-detected next to the host.</summary>
     public string? CliPath { get; set; }
 
+    /// <summary>
+    /// Optional ZZZ container index (hash → path JSON). Empty means "look in the default
+    /// places": %LOCALAPPDATA%\AnimeStudio\Maps, the dist folder's Maps\, or the working folder.
+    /// </summary>
+    public string? ContainerIndexPath { get; set; }
+
     public Dictionary<string, GameProfile> Profiles { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     // Legacy single-game fields, only read for migration.

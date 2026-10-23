@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>批量与资产地图 · AnimeStudio 说明书</title>
-<meta name="description" content="AnimeStudio 命令行批处理：22 个参数的真实默认值、三个必踩的坑、按文件流式处理的代价，以及资产地图与 Asset Browser 的用法和局限。">
+<meta name="description" content="AnimeStudio 命令行批处理：23 个参数的真实默认值、三个必踩的坑、按文件流式处理的代价，以及资产地图与 Asset Browser 的用法和局限。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600&display=swap" rel="stylesheet">
@@ -69,7 +69,7 @@
         <p>本页内容</p>
         <a href="#when">什么时候该用命令行</a>
         <a href="#examples">三条能直接复制的命令</a>
-        <a href="#flags">22 个参数的默认值</a>
+        <a href="#flags">23 个参数的默认值</a>
         <a href="#pits">三个必须知道的坑</a>
         <a href="#stream">一个文件一个文件地干</a>
         <a href="#asset-map">资产地图：先建索引再回捞</a>
@@ -98,8 +98,8 @@
       <pre><code>AnimeStudio.CLI.exe "D:\Games\ZZZ" "D:\Out\zzz-ui" --game ZZZ --map_op AssetMap,Load --map_type MessagePack --map_name "D:\Maps\zzz\zzz-assets.map" --names "ui_.*" --types Sprite</code></pre>
       <p>这条读上一条的索引，只加载名字匹配 <code>ui_.*</code> 的精灵所在的包，再导出。<code>AssetMap,Load</code> 就是「用现成的 map」，所以 <code>--map_name</code> 要给带 <code>.map</code> 的完整路径。</p>
 
-      <h2 id="flags">22 个参数的默认值</h2>
-      <p>20 个 flag 加两个位置参数，默认值全在 <code>Components/CommandLine.cs</code> 里。</p>
+      <h2 id="flags">23 个参数的默认值</h2>
+      <p>21 个 flag 加两个位置参数，默认值全在 <code>Components/CommandLine.cs</code> 里。</p>
 
       <div class="table-wrap">
         <table>
@@ -162,7 +162,7 @@
 
       <div class="table-wrap">
         <table>
-          <caption>其余六项</caption>
+          <caption>其余七项</caption>
           <thead>
             <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
           </thead>
@@ -173,6 +173,7 @@
             <tr><td><code>--key</code></td><td>0</td><td>MiHoYoBinData 的 XOR 密钥，0 表示不启用。可写十六进制。</td></tr>
             <tr><td><code>--ai_file</code></td><td>空</td><td>资产索引 JSON，只对原神系游戏生效。</td></tr>
             <tr><td><code>--dummy_dlls</code></td><td>空</td><td>DummyDll 目录，给脚本类资产反序列化用。</td></tr>
+            <tr><td><code>--container_index</code></td><td>空</td><td>绝区零的 hash → 路径索引（<code>Z3-AssetIndex-Eleiyas.json</code>）。留空时依次找 <code>%LOCALAPPDATA%\AnimeStudio\Maps</code>、程序目录的 <code>Maps\</code>、当前目录的 <code>Maps\</code>；有了它，<code>--containers</code> 和 <code>ByContainer</code> 才能按真实路径工作。</td></tr>
           </tbody>
         </table>
       </div>

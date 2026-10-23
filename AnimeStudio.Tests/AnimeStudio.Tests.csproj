@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\AnimeStudio.Application\AnimeStudio.Application.csproj" />
+    <ProjectReference Include="..\AnimeStudio\AnimeStudio.csproj" />
   </ItemGroup>
 
 </Project>

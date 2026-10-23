@@ -62,7 +62,7 @@ namespace AnimeStudio
             string Name,
             string Container,
             string Source,
-            long PathId,
+            ulong PathId,
             ClassIDType Type,
             string Hash);
 
@@ -109,7 +109,7 @@ namespace AnimeStudio
                 }
 
                 if (!MatchesAnyRegex(nameFilter, nameBuffer, nameLength) ||
-                    !MatchesAnyRegex(containerFilter, containerBuffer, containerLength) ||
+                    !MatchesAnyContainer(containerFilter, containerBuffer, containerLength) ||
                     !MatchesAnyRegex(sourceFilter, sourceBuffer, sourceLength))
                 {
                     return;
@@ -125,9 +125,9 @@ namespace AnimeStudio
                 {
                     items.Add(new EntryInfo(
                         nameLength <= 0 ? string.Empty : utf8.GetString(nameBuffer, 0, nameLength),
-                        containerLength <= 0 ? string.Empty : utf8.GetString(containerBuffer, 0, containerLength),
+                        containerLength <= 0 ? string.Empty : ResolveContainer(utf8.GetString(containerBuffer, 0, containerLength)),
                         sourceLength <= 0 ? string.Empty : utf8.GetString(sourceBuffer, 0, sourceLength),
-                        pathId,
+                        unchecked((ulong)pathId),
                         type,
                         hashLength <= 0 ? string.Empty : utf8.GetString(hashBuffer, 0, hashLength)));
                 }
@@ -191,7 +191,7 @@ namespace AnimeStudio
                     return;
                 }
 
-                if (!MatchesAnyRegex(containerFilter, containerBuffer, containerLength))
+                if (!MatchesAnyContainer(containerFilter, containerBuffer, containerLength))
                 {
                     return;
                 }
@@ -458,6 +458,37 @@ namespace AnimeStudio
             }
 
             return false;
+        }
+
+        /// <summary>Container filter that also matches the readable ZZZ path behind a hash id.</summary>
+        private static bool MatchesAnyContainer(Regex[] filters, byte[] buffer, int length)
+        {
+            if (filters is null || filters.Length == 0)
+            {
+                return true;
+            }
+
+            string value = ResolveContainer(length <= 0 ? string.Empty : Encoding.UTF8.GetString(buffer, 0, length));
+            foreach (Regex filter in filters)
+            {
+                if (filter.IsMatch(value))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>ZZZ container ids are xxhash64 values; show the path when the index knows it.</summary>
+        private static string ResolveContainer(string container)
+        {
+            if (container.Length == 0)
+            {
+                return container;
+            }
+
+            return ContainerIndex.Resolve(container) ?? container;
         }
 
         /// <summary>Reads one MessagePack string into a reusable buffer. Returns its length, or -1 for nil.</summary>
