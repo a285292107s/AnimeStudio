@@ -1013,7 +1013,14 @@ button { font: inherit; color: inherit; }
 
 
 /* 资源浏览（Asset Browser 等价物） */
-.toolbar--wrap { flex-wrap: wrap; row-gap: 6px; }
+.toolbar--wrap {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  height: auto;
+  min-height: 50px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
 .toolbar--wrap .field--inline input {
   padding: 5px 8px;
   font-family: var(--mono);
